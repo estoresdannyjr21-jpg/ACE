@@ -1,0 +1,926 @@
+// Ace Truckers Corp ERP SaaS - Prisma Schema (copy for API)
+// Phase 1: Shopee Express (SPX)
+// Keep in sync with root prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// TENANCY
+// ============================================
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users             User[]
+  clientAccounts    ClientAccount[]
+  operators         Operator[]
+  drivers           Driver[]
+  vehicles          Vehicle[]
+  trips             Trip[]
+  routeRates        RouteRate[]
+  payoutBatches     PayoutBatch[]
+  arBatches         ArBatch[]
+  auditLogs         AuditLog[]
+  driverAvailability DriverAvailability[]
+
+  @@map("tenants")
+}
+
+// ============================================
+// AUTHENTICATION & RBAC
+// ============================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  FLEET_ACQUISITION
+  OPERATIONS_ACCOUNT_COORDINATOR
+  FINANCE_PERSONNEL
+  FINANCE_MANAGER
+  CFO
+  DRIVER
+  OPERATOR_USER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      UserRole
+  status    String   @default("ACTIVE")
+  driverId  String?  @unique
+  operatorId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driver            Driver?           @relation(fields: [driverId], references: [id])
+  operator          Operator?         @relation(fields: [operatorId], references: [id])
+  createdTrips      Trip[]            @relation("TripCreator")
+  reviewedPODs      Trip[]            @relation("PODReviewer")
+  reportedIncidents TripIncident[] @relation("TripIncidentReporter")
+  resolvedIncidents TripIncident[] @relation("TripIncidentResolver")
+  incidentUpdates   TripIncidentUpdate[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  overrideRequestsSubmitted PayoutOverrideRequest[] @relation("OverrideSubmitter")
+  overrideRequestsApproved  PayoutOverrideRequest[] @relation("OverrideApprover")
+  fcmTokens         UserFcmToken[]
+
+  @@map("users")
+}
+
+model UserFcmToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String
+  deviceId  String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId])
+  @@map("user_fcm_tokens")
+}
+
+// ============================================
+// CLIENT ACCOUNTS & SERVICE CONFIG
+// ============================================
+
+model ClientAccount {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  code      String
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  serviceCategories ServiceCategory[]
+  serviceConfigs    ClientServiceConfig[]
+  trips             Trip[]
+  routeRates        RouteRate[]
+  fleetInventory    FleetInventory[]
+  payoutBatches     PayoutBatch[]
+  arBatches         ArBatch[]
+
+  @@map("client_accounts")
+}
+
+model ServiceCategory {
+  id              String   @id @default(cuid())
+  clientAccountId String
+  name            String
+  code            String
+  segmentType     String
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  clientAccount ClientAccount    @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceConfig ClientServiceConfig?
+  trips         Trip[]
+  routeRates    RouteRate[]
+
+  @@map("service_categories")
+}
+
+model ClientServiceConfig {
+  id                          String   @id @default(cuid())
+  clientAccountId             String
+  serviceCategoryId           String   @unique
+  payoutTermsBusinessDays     Int      @default(3)
+  docSubmissionDay            String   @default("Tuesday")
+  cycleStartDay               String   @default("Wednesday")
+  excludeWeekends             Boolean  @default(true)
+  subcontractorInvoiceDeadlineDays Int @default(30)
+  callTimeGraceMinutes        Int      @default(15)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  clientAccount   ClientAccount   @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id], onDelete: Cascade)
+
+  @@map("client_service_configs")
+}
+
+// ============================================
+// FLEET ACQUISITION
+// ============================================
+
+enum InvoiceType {
+  VATABLE
+  NON_VATABLE
+  NO_OR
+}
+
+enum DriverAvailabilityStatus {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+model Operator {
+  id          String       @id @default(cuid())
+  tenantId    String
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  taxId       String?
+  invoiceType InvoiceType  @default(VATABLE)
+  bankName    String?
+  bankAccount String?
+  bankBranch  String?
+  status      String       @default("ACTIVE")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driverAssignments   DriverOperatorAssignment[]
+  vehicleAssignments  VehicleOperatorAssignment[]
+  trips               Trip[]
+  users               User[]
+  payoutBatches        PayoutBatch[]
+
+  @@map("operators")
+}
+
+model Driver {
+  id           String   @id @default(cuid())
+  tenantId     String
+  spxDriverId  String?
+  firstName    String
+  lastName     String
+  phone        String?
+  email        String?
+  licenseNumber String?
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                User?
+  documents           DriverDocument[]
+  assignments         DriverOperatorAssignment[]
+  trips               Trip[]
+  availability         DriverAvailability[]
+  cashbondAccount     DriverCashbondAccount?
+  cashbondLedger      DriverCashbondLedger[]
+
+  @@map("drivers")
+}
+
+model DriverAvailability {
+  id        String   @id @default(cuid())
+  tenantId  String
+  driverId  String
+  date      DateTime
+  status    DriverAvailabilityStatus
+  codingDay Boolean  @default(false)
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, driverId, date])
+  @@index([tenantId, date, status])
+  @@map("driver_availability")
+}
+
+model DriverDocument {
+  id          String   @id @default(cuid())
+  driverId    String
+  docType     String
+  fileKey     String
+  uploadedAt  DateTime @default(now())
+  expiresAt   DateTime?
+  status      String   @default("ACTIVE")
+
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@map("driver_documents")
+}
+
+model Vehicle {
+  id          String   @id @default(cuid())
+  tenantId    String
+  plateNumber String   @unique
+  vehicleType String
+  bodyType    String?
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant     Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documents  VehicleDocument[]
+  assignments VehicleOperatorAssignment[]
+  trips      Trip[]
+  fleetInventory FleetInventory[]
+
+  @@map("vehicles")
+}
+
+model VehicleDocument {
+  id         String   @id @default(cuid())
+  vehicleId  String
+  docType    String
+  fileKey    String
+  uploadedAt DateTime @default(now())
+  expiresAt   DateTime?
+  status     String   @default("ACTIVE")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_documents")
+}
+
+model DriverOperatorAssignment {
+  id         String    @id @default(cuid())
+  driverId   String
+  operatorId String
+  startDate  DateTime
+  endDate    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  driver   Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, startDate])
+  @@map("driver_operator_assignments")
+}
+
+model VehicleOperatorAssignment {
+  id         String    @id @default(cuid())
+  vehicleId  String
+  operatorId String
+  startDate  DateTime
+  endDate    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  vehicle  Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, startDate])
+  @@map("vehicle_operator_assignments")
+}
+
+model FleetInventory {
+  id            String    @id @default(cuid())
+  clientAccountId String
+  vehicleId     String
+  tagType       String
+  effectiveStart DateTime
+  effectiveEnd   DateTime?
+  status        String    @default("ACTIVE")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  clientAccount ClientAccount @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  vehicle       Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("fleet_inventory")
+}
+
+// ============================================
+// TRIPS
+// ============================================
+
+enum AssignmentStatus {
+  ASSIGNED_PENDING_ACCEPTANCE
+  ACCEPTED
+  DECLINED
+}
+
+enum PODStatus {
+  POD_NOT_UPLOADED
+  POD_UPLOADED_PENDING_REVIEW
+  POD_VERIFIED
+  POD_REJECTED_NEEDS_REUPLOAD
+}
+
+enum HighLevelTripStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Trip {
+  id                    String            @id @default(cuid())
+  tenantId              String
+  clientAccountId       String
+  serviceCategoryId     String
+  segmentType           String
+  internalRef           String   @unique
+  externalRef           String?
+  requestDeliveryDate   DateTime?
+  runsheetDate          DateTime
+  abStatus              String?
+  originArea            String
+  destinationArea       String
+  routeCode             String?
+  tripOrder             Int?
+  callTime              DateTime
+  vehicleType           String
+  assignedDriverId      String?
+  assignedVehicleId     String?
+  operatorIdAtAssignment String?
+  assignmentStatus      AssignmentStatus  @default(ASSIGNED_PENDING_ACCEPTANCE)
+  assignedAt            DateTime?
+  acceptedAt            DateTime?
+  declinedAt            DateTime?
+  declineReason         String?
+  lastDriverEventAt     DateTime?
+  highLevelTripStatus   HighLevelTripStatus @default(ASSIGNED)
+  podStatus             PODStatus @default(POD_NOT_UPLOADED)
+  podLastReviewedByUserId String?
+  podLastReviewedAt     DateTime?
+  podRejectionComment   String?
+  createdByUserId       String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientAccount         ClientAccount       @relation(fields: [clientAccountId], references: [id])
+  serviceCategory       ServiceCategory     @relation(fields: [serviceCategoryId], references: [id])
+  assignedDriver        Driver?             @relation(fields: [assignedDriverId], references: [id])
+  assignedVehicle       Vehicle?            @relation(fields: [assignedVehicleId], references: [id])
+  operatorAtAssignment  Operator?           @relation(fields: [operatorIdAtAssignment], references: [id])
+  creator               User                @relation("TripCreator", fields: [createdByUserId], references: [id])
+  podReviewer           User?               @relation("PODReviewer", fields: [podLastReviewedByUserId], references: [id])
+  stops                 TripStop[]
+  events                TripEvent[]
+  documents             TripDocument[]
+  incidents             TripIncident[]     @relation("TripIncident_Trip")
+  replacementIncidents  TripIncident[]     @relation("TripIncident_Replacement")
+  finance               TripFinance?
+  payoutBatchTrips      PayoutBatchTrip[]
+  payoutBatchExclusions PayoutBatchExclusion[]
+  overrideRequest       PayoutOverrideRequest?
+  clientTripRef         String?  // client's reference for reverse billing matching
+  arBatchTrips          ArBatchTrip[]
+
+  @@map("trips")
+}
+
+enum StopType {
+  PICKUP
+  SOC
+  DROP
+  HUB
+}
+
+model TripStop {
+  id            String   @id @default(cuid())
+  tripId        String
+  stopSequence  Int
+  stopType      StopType
+  locationName  String
+  plannedArrival DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  trip   Trip         @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  events TripEvent[]
+
+  @@unique([tripId, stopSequence])
+  @@map("trip_stops")
+}
+
+enum EventType {
+  ARRIVED
+  DEPARTED
+  LOADING_START
+  LOADING_DONE
+  UNLOADING_START
+  UNLOADING_DONE
+}
+
+model TripEvent {
+  id              String    @id @default(cuid())
+  tripId          String
+  stopId          String?
+  eventType       EventType
+  eventTime       DateTime
+  gpsLat          Float?
+  gpsLng          Float?
+  gpsAccuracy     Float?
+  capturedOffline Boolean   @default(false)
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+
+  trip   Trip         @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  stop   TripStop?    @relation(fields: [stopId], references: [id])
+  media  TripEventMedia[]
+
+  @@map("trip_events")
+}
+
+model TripEventMedia {
+  id         String   @id @default(cuid())
+  tripEventId String
+  fileKey    String
+  uploadedAt DateTime @default(now())
+
+  tripEvent TripEvent @relation(fields: [tripEventId], references: [id], onDelete: Cascade)
+
+  @@map("trip_event_media")
+}
+
+enum DocumentType {
+  POD_RUNSHEET
+  TOLL
+  GAS
+  PARKING
+  BARCODE_COVER_SHEET
+  OTHER
+}
+
+model TripDocument {
+  id            String       @id @default(cuid())
+  tripId        String
+  docType       DocumentType
+  fileKey       String
+  uploadedByUserId String?
+  uploadedAt    DateTime     @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@map("trip_documents")
+}
+
+// ============================================
+// INCIDENTS
+// ============================================
+
+enum IncidentType {
+  ACCIDENT
+  BREAKDOWN
+  DELAY
+  DAMAGE
+  OTHER
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model TripIncident {
+  id                String          @id @default(cuid())
+  tripId            String
+  reportedByUserId  String
+  reportedAt        DateTime        @default(now())
+  incidentType      IncidentType
+  severity          IncidentSeverity
+  description       String
+  gpsLat            Float?
+  gpsLng            Float?
+  gpsAccuracy       Float?
+  status            IncidentStatus  @default(OPEN)
+  resolvedByUserId  String?
+  resolvedAt        DateTime?
+  resolutionNotes   String?
+  replacementTripId String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  trip       Trip                @relation("TripIncident_Trip", fields: [tripId], references: [id], onDelete: Cascade)
+  reporter   User                @relation("TripIncidentReporter", fields: [reportedByUserId], references: [id])
+  resolver   User?               @relation("TripIncidentResolver", fields: [resolvedByUserId], references: [id])
+  replacementTrip Trip?          @relation("TripIncident_Replacement", fields: [replacementTripId], references: [id])
+  media      TripIncidentMedia[]
+  updates    TripIncidentUpdate[]
+
+  @@map("trip_incidents")
+}
+
+model TripIncidentMedia {
+  id         String       @id @default(cuid())
+  incidentId String
+  fileKey    String
+  uploadedAt DateTime     @default(now())
+
+  incident TripIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@map("trip_incident_media")
+}
+
+model TripIncidentUpdate {
+  id         String          @id @default(cuid())
+  incidentId String
+  updatedByUserId String
+  updateAt   DateTime        @default(now())
+  newStatus IncidentStatus?
+  comment   String?
+
+  incident TripIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  updater  User         @relation(fields: [updatedByUserId], references: [id])
+
+  @@map("trip_incident_updates")
+}
+
+// ============================================
+// RATES
+// ============================================
+
+model RouteRate {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  clientAccountId     String
+  serviceCategoryId   String
+  originArea          String
+  destinationArea     String
+  effectiveStart      DateTime
+  effectiveEnd        DateTime?
+  billRateAmount      Decimal   @db.Decimal(12, 2)
+  tripPayoutRateVatable Decimal @db.Decimal(12, 2)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientAccount ClientAccount   @relation(fields: [clientAccountId], references: [id])
+  serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id])
+
+  @@map("route_rates")
+}
+
+// ============================================
+// FINANCE
+// ============================================
+
+enum ReimbursableStatus {
+  DRAFT
+  SUBMITTED_TO_CLIENT
+  APPROVED
+  REJECTED
+}
+
+enum BillingStatus {
+  READY_TO_BILL
+  BILLED
+  PAID
+}
+
+enum PayoutStatus {
+  READY_FOR_PAYOUT
+  IN_BATCH
+  FIN_MGR_APPROVED
+  CFO_APPROVED
+  RELEASED
+  PAID
+}
+
+model TripFinance {
+  id                          String            @id @default(cuid())
+  tripId                      String            @unique
+  financeDocReceivedAt        DateTime?
+  vatableBaseRate             Decimal?          @db.Decimal(12, 2)
+  nonVatBaseRate              Decimal?          @db.Decimal(12, 2)
+  payoutBase                  Decimal?          @db.Decimal(12, 2)
+  adminFee                    Decimal?          @db.Decimal(12, 2)
+  netTripPayoutBeforeReimb    Decimal?          @db.Decimal(12, 2)
+  tollAmount                  Decimal?          @db.Decimal(12, 2)
+  gasAmount                   Decimal?          @db.Decimal(12, 2)
+  parkingAmount               Decimal?          @db.Decimal(12, 2)
+  reimbursableStatus          ReimbursableStatus? @default(DRAFT)
+  approvedReimbursableAmount  Decimal?          @db.Decimal(12, 2)
+  billingStatus               BillingStatus?    @default(READY_TO_BILL)
+  billingLedgerDate           DateTime?
+  payoutStatus                PayoutStatus?     @default(READY_FOR_PAYOUT)
+  payoutLedgerDate            DateTime?
+  payoutDueDate               DateTime?
+  overrideExpiredDeadline     Boolean           @default(false)
+  overrideRequestId           String?
+  billingDispute              Boolean           @default(false)
+  billingDisputeReason        String?
+  createdAt                   DateTime          @default(now())
+  updatedAt                   DateTime          @updatedAt
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@map("trip_finance")
+}
+
+enum PayoutBatchStatus {
+  DRAFT
+  FIN_MGR_APPROVED
+  CFO_APPROVED
+  RELEASED
+  PAID
+}
+
+model PayoutBatch {
+  id                    String              @id @default(cuid())
+  tenantId              String
+  operatorId            String
+  clientAccountId       String
+  periodStart           DateTime
+  periodEnd             DateTime
+  targetReleaseDate     DateTime?
+  status                PayoutBatchStatus   @default(DRAFT)
+  held                  Boolean             @default(false)
+  releasedAt            DateTime?
+  totalTripPayout       Decimal             @db.Decimal(12, 2) @default(0)
+  totalAdminFee         Decimal             @db.Decimal(12, 2) @default(0)
+  totalReimbursables    Decimal             @db.Decimal(12, 2) @default(0)
+  totalCashbondDeduction Decimal            @db.Decimal(12, 2) @default(0)
+  netPayable            Decimal             @db.Decimal(12, 2) @default(0)
+  finMgrApprovedAt      DateTime?
+  finMgrApprovedByUserId String?
+  cfoApprovedAt         DateTime?
+  cfoApprovedByUserId   String?
+  payslipFileKey        String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operator      Operator          @relation(fields: [operatorId], references: [id])
+  clientAccount ClientAccount     @relation(fields: [clientAccountId], references: [id])
+  trips         PayoutBatchTrip[]
+  cashbondLedger DriverCashbondLedger[]
+  exclusions    PayoutBatchExclusion[]
+
+  @@map("payout_batches")
+}
+
+model PayoutBatchExclusion {
+  id            String   @id @default(cuid())
+  payoutBatchId String
+  tripId        String
+  reason        String
+  createdAt     DateTime @default(now())
+
+  payoutBatch PayoutBatch @relation(fields: [payoutBatchId], references: [id], onDelete: Cascade)
+  trip        Trip        @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@unique([payoutBatchId, tripId])
+  @@map("payout_batch_exclusions")
+}
+
+model PayoutBatchTrip {
+  id                    String   @id @default(cuid())
+  payoutBatchId         String
+  tripId                String
+  snapshotTripPayout    Decimal  @db.Decimal(12, 2)
+  snapshotAdminFee      Decimal  @db.Decimal(12, 2)
+  snapshotReimbursables Decimal  @db.Decimal(12, 2)
+  createdAt             DateTime @default(now())
+
+  payoutBatch PayoutBatch @relation(fields: [payoutBatchId], references: [id], onDelete: Cascade)
+  trip        Trip        @relation(fields: [tripId], references: [id])
+
+  @@unique([payoutBatchId, tripId])
+  @@map("payout_batch_trips")
+}
+
+// ============================================
+// CLIENT AR BATCHES (Reverse Billing, Invoice, Payment List)
+// ============================================
+
+model ArBatch {
+  id                        String    @id @default(cuid())
+  tenantId                  String
+  clientAccountId           String
+  serviceSegment            String    // FM_ONCALL | FM_WETLEASE | MFM_ONCALL
+  cutoffStartDate           DateTime
+  cutoffEndDate             DateTime
+  reverseBillingReceivedAt  DateTime?
+  invoiceNumber             String?
+  invoiceDate               DateTime?
+  paymentListReceivedAt     DateTime?
+  amountPaidFromClient      Decimal?  @db.Decimal(12, 2)
+  checkPickupDate           DateTime?
+  depositedAt               DateTime?
+  status                    String    @default("REVERSE_BILLING_RECEIVED")
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientAccount ClientAccount        @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  trips         ArBatchTrip[]
+  unmatchedLines ArBatchUnmatchedLine[]
+
+  @@unique([tenantId, clientAccountId, serviceSegment, cutoffStartDate, cutoffEndDate])
+  @@map("ar_batches")
+}
+
+model ArBatchTrip {
+  id         String   @id @default(cuid())
+  arBatchId  String
+  tripId     String
+  createdAt  DateTime @default(now())
+
+  arBatch ArBatch @relation(fields: [arBatchId], references: [id], onDelete: Cascade)
+  trip   Trip    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@unique([arBatchId, tripId])
+  @@map("ar_batch_trips")
+}
+
+model ArBatchUnmatchedLine {
+  id                  String   @id @default(cuid())
+  arBatchId           String
+  clientProvidedRef   String
+  ourInternalRef      String?
+  serviceCategoryCode String?
+  runsheetDate        DateTime?
+  amountClient        Decimal? @db.Decimal(12, 2)
+  notes               String?
+  uploadedAt          DateTime @default(now())
+  uploadedByUserId    String?
+
+  arBatch ArBatch @relation(fields: [arBatchId], references: [id], onDelete: Cascade)
+
+  @@map("ar_batch_unmatched_lines")
+}
+
+// ============================================
+// CASHBOND
+// ============================================
+
+model DriverCashbondAccount {
+  id            String   @id @default(cuid())
+  driverId      String   @unique
+  currentBalance Decimal @db.Decimal(12, 2) @default(0)
+  capAmount     Decimal  @db.Decimal(12, 2) @default(50000)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  driver  Driver              @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  ledger  DriverCashbondLedger[] @relation("CashbondLedgerAccount")
+
+  @@map("driver_cashbond_accounts")
+}
+
+enum CashbondLedgerType {
+  DEDUCTION
+  REFUND
+}
+
+model DriverCashbondLedger {
+  id            String            @id @default(cuid())
+  driverId      String
+  payoutBatchId String?
+  amount        Decimal           @db.Decimal(12, 2)
+  type          CashbondLedgerType
+  createdAt     DateTime          @default(now())
+
+  driver      Driver       @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  payoutBatch PayoutBatch? @relation(fields: [payoutBatchId], references: [id])
+  account     DriverCashbondAccount @relation("CashbondLedgerAccount", fields: [driverId], references: [driverId], map: "driver_cashbond_ledger_account_driverId_fkey")
+
+  @@unique([driverId, payoutBatchId, type])
+  @@map("driver_cashbond_ledger")
+}
+
+enum OverrideRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model PayoutOverrideRequest {
+  id            String                @id @default(cuid())
+  tripId        String                @unique
+  submittedByUserId String
+  reason        String
+  status        OverrideRequestStatus @default(PENDING)
+  approvedByUserId String?
+  approvedAt    DateTime?
+  rejectionReason String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  submitter User @relation("OverrideSubmitter", fields: [submittedByUserId], references: [id])
+  approver  User? @relation("OverrideApprover", fields: [approvedByUserId], references: [id])
+  trip      Trip @relation(fields: [tripId], references: [id])
+
+  @@map("payout_override_requests")
+}
+
+enum NotificationType {
+  TRIP_ASSIGNED
+  TRIP_ASSIGNMENT_REMINDER
+  TRIP_DECLINED_ALERT
+  CALLTIME_REMINDER_DRIVER
+  NO_UPDATE_REMINDER_DRIVER
+  NO_UPDATE_ALERT_COORDINATOR
+  INCIDENT_CREATED
+  INCIDENT_UPDATED
+  MANUAL_UPDATE_NOTICE
+  POD_UPLOADED_PENDING_REVIEW
+  POD_REJECTED
+  POD_VERIFIED
+  FINANCE_DOC_RECEIVED
+}
+
+enum NotificationStatus {
+  SENT
+  READ
+}
+
+model Notification {
+  id         String            @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  body       String
+  payloadJson Json?
+  status     NotificationStatus @default(SENT)
+  createdAt  DateTime          @default(now())
+  readAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String
+  action      String
+  entityType  String
+  entityId    String?
+  changesJson Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
