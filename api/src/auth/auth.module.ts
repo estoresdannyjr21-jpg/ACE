@@ -7,13 +7,17 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 
+const DEV_FALLBACK_JWT_SECRET = 'ace-truckers-dev-secret';
+
 @Module({
   imports: [
     PassportModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
+        // For local dev: allow running without JWT_SECRET in .env.
+        // In production, always set JWT_SECRET.
+        secret: config.get<string>('JWT_SECRET') || DEV_FALLBACK_JWT_SECRET,
         signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN') || '7d' },
       }),
     }),

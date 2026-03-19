@@ -4,6 +4,8 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
+const DEV_FALLBACK_JWT_SECRET = 'ace-truckers-dev-secret';
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -13,7 +15,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET'),
+      // Keep in sync with AuthModule fallback for local dev.
+      secretOrKey: configService.get<string>('JWT_SECRET') || DEV_FALLBACK_JWT_SECRET,
     });
   }
 

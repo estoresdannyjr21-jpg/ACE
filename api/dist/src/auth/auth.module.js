@@ -15,6 +15,7 @@ const auth_service_1 = require("./auth.service");
 const auth_controller_1 = require("./auth.controller");
 const jwt_strategy_1 = require("./strategies/jwt.strategy");
 const local_strategy_1 = require("./strategies/local.strategy");
+const DEV_FALLBACK_JWT_SECRET = 'ace-truckers-dev-secret';
 let AuthModule = class AuthModule {
 };
 exports.AuthModule = AuthModule;
@@ -25,7 +26,7 @@ exports.AuthModule = AuthModule = __decorate([
             jwt_1.JwtModule.registerAsync({
                 inject: [config_1.ConfigService],
                 useFactory: (config) => ({
-                    secret: config.get('JWT_SECRET'),
+                    secret: config.get('JWT_SECRET') || DEV_FALLBACK_JWT_SECRET,
                     signOptions: { expiresIn: config.get('JWT_EXPIRES_IN') || '7d' },
                 }),
             }),

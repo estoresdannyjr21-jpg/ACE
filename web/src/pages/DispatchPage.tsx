@@ -42,6 +42,7 @@ export function DispatchPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [filters, setFilters] = useState<{ dateFrom?: string; dateTo?: string; clientAccountId?: string }>({});
+  const [applied, setApplied] = useState<{ dateFrom?: string; dateTo?: string; clientAccountId?: string }>({});
 
   const loadLookups = useCallback(async () => {
     try {
@@ -57,9 +58,9 @@ export function DispatchPage() {
     setError(null);
     try {
       const params: Record<string, string> = {};
-      if (filters.dateFrom) params.dateFrom = filters.dateFrom;
-      if (filters.dateTo) params.dateTo = filters.dateTo;
-      if (filters.clientAccountId) params.clientAccountId = filters.clientAccountId;
+      if (applied.dateFrom) params.dateFrom = applied.dateFrom;
+      if (applied.dateTo) params.dateTo = applied.dateTo;
+      if (applied.clientAccountId) params.clientAccountId = applied.clientAccountId;
       const data = await getTrips(params);
       setTrips(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -67,7 +68,7 @@ export function DispatchPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters.dateFrom, filters.dateTo, filters.clientAccountId]);
+  }, [applied.dateFrom, applied.dateTo, applied.clientAccountId]);
 
   useEffect(() => {
     loadLookups();
@@ -77,15 +78,10 @@ export function DispatchPage() {
     loadTrips();
   }, [loadTrips]);
 
-  const applyFilters = () => {
-    const form = document.getElementById('dispatch-filters') as HTMLFormElement;
-    if (!form) return;
-    const fd = new FormData(form);
-    setFilters({
-      dateFrom: (fd.get('dateFrom') as string) || undefined,
-      dateTo: (fd.get('dateTo') as string) || undefined,
-      clientAccountId: (fd.get('clientAccountId') as string) || undefined,
-    });
+  const onApply = () => setApplied({ ...filters });
+  const onReset = () => {
+    setFilters({});
+    setApplied({});
   };
 
   const handleCreateTrip = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -155,7 +151,48 @@ export function DispatchPage() {
         <h1 className="page-title">Dispatch</h1>
         <p className="page-subtitle">View and create trips. Filter by date and client.</p>
       </div>
-      <div className="panel">
+      <section className="panel">
+        <div className="panel-header-row">
+          <h3 className="panel-title">Filters</h3>
+        </div>
+        <div className="filters-row" style={{ flexWrap: 'wrap' }}>
+          <div className="filter-group">
+            <label className="filter-label">Date from</label>
+            <input
+              type="date"
+              className="filter-input"
+              value={filters.dateFrom ?? ''}
+              onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value || undefined }))}
+            />
+          </div>
+          <div className="filter-group">
+            <label className="filter-label">Date to</label>
+            <input
+              type="date"
+              className="filter-input"
+              value={filters.dateTo ?? ''}
+              onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value || undefined }))}
+            />
+          </div>
+          <div className="filter-group">
+            <label className="filter-label">Client</label>
+            <select
+              className="filter-select"
+              value={filters.clientAccountId ?? ''}
+              onChange={(e) => setFilters((f) => ({ ...f, clientAccountId: e.target.value || undefined }))}
+            >
+              <option value="">All</option>
+              {(lookups?.clients ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={onApply}>Apply</button>
+          <button type="button" className="btn btn-secondary" onClick={onReset}>Reset</button>
+        </div>
+      </section>
+
+      <section className="panel">
         <div className="panel-header-row">
           <h2 className="section-title">Trips</h2>
           <button
@@ -166,39 +203,6 @@ export function DispatchPage() {
             {showCreate ? 'Cancel' : 'Create trip'}
           </button>
         </div>
-
-        <form id="dispatch-filters" className="filters-row" style={{ marginBottom: '1rem' }}>
-          <div className="filter-group">
-            <label className="filter-label">Date from</label>
-            <input
-              type="date"
-              name="dateFrom"
-              className="filter-input"
-              defaultValue={filters.dateFrom}
-            />
-          </div>
-          <div className="filter-group">
-            <label className="filter-label">Date to</label>
-            <input
-              type="date"
-              name="dateTo"
-              className="filter-input"
-              defaultValue={filters.dateTo}
-            />
-          </div>
-          <div className="filter-group">
-            <label className="filter-label">Client</label>
-            <select name="clientAccountId" className="filter-select">
-              <option value="">All</option>
-              {(lookups?.clients ?? []).map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-              ))}
-            </select>
-          </div>
-          <button type="button" className="btn btn-secondary" onClick={applyFilters}>
-            Apply
-          </button>
-        </form>
 
         {showCreate && lookups && (
           <form onSubmit={handleCreateTrip} className="form-block">
@@ -322,7 +326,7 @@ export function DispatchPage() {
             </table>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

@@ -15,12 +15,13 @@ const passport_1 = require("@nestjs/passport");
 const passport_jwt_1 = require("passport-jwt");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../../common/prisma/prisma.service");
+const DEV_FALLBACK_JWT_SECRET = 'ace-truckers-dev-secret';
 let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy) {
     constructor(configService, prisma) {
         super({
             jwtFromRequest: passport_jwt_1.ExtractJwt.fromAuthHeaderAsBearerToken(),
             ignoreExpiration: false,
-            secretOrKey: configService.get('JWT_SECRET'),
+            secretOrKey: configService.get('JWT_SECRET') || DEV_FALLBACK_JWT_SECRET,
         });
         this.configService = configService;
         this.prisma = prisma;
