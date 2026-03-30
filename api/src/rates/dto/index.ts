@@ -34,13 +34,19 @@ export class CreateRouteRateDto {
   @IsDateString()
   effectiveEnd?: string;
 
-  @ApiProperty({ description: 'Bill rate amount', example: 1500.5 })
+  @ApiProperty({
+    description: 'Amount to bill the client (AR / gross billing line)',
+    example: 1500.5,
+  })
   @IsNumber()
   @Min(0)
   @Type(() => Number)
   billRateAmount: number;
 
-  @ApiProperty({ description: 'Trip payout rate (VATable)', example: 1200 })
+  @ApiProperty({
+    description: 'Subcontractor trip rate — VATable base for AP (before invoice type & admin fee)',
+    example: 1200,
+  })
   @IsNumber()
   @Min(0)
   @Type(() => Number)
@@ -68,14 +74,14 @@ export class UpdateRouteRateDto {
   @IsDateString()
   effectiveEnd?: string;
 
-  @ApiPropertyOptional({ description: 'Bill rate amount' })
+  @ApiPropertyOptional({ description: 'Bill to client (AR)' })
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Type(() => Number)
   billRateAmount?: number;
 
-  @ApiPropertyOptional({ description: 'Trip payout rate (VATable)' })
+  @ApiPropertyOptional({ description: 'Subcontractor VATable payout base (AP)' })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -108,4 +114,80 @@ export class GetRouteRatesQueryDto {
   @IsOptional()
   @IsDateString()
   effectiveOn?: string;
+}
+
+export class CreateWetleaseFirstTripRateDto {
+  @ApiProperty({ description: 'Client account ID' })
+  @IsString()
+  clientAccountId: string;
+
+  @ApiProperty({ description: 'Service category ID (4WCV or 6WCV wetlease only)' })
+  @IsString()
+  serviceCategoryId: string;
+
+  @ApiProperty({
+    description: 'First wetlease trip of the day (per driver) — gross amount to bill the client (AR)',
+    example: 4100.0,
+  })
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  firstTripClientBillAmount: number;
+
+  @ApiProperty({
+    description:
+      'First wetlease trip of the day (per driver) — subcontractor VATable base (AP, before admin fee / invoice type)',
+    example: 3100.0,
+  })
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  firstTripPayoutVatable: number;
+
+  @ApiProperty({ description: 'Start of effective period (ISO date/datetime)' })
+  @IsDateString()
+  effectiveStart: string;
+
+  @ApiPropertyOptional({ description: 'End of effective period (omit = open-ended)' })
+  @IsOptional()
+  @IsDateString()
+  effectiveEnd?: string;
+}
+
+export class UpdateWetleaseFirstTripRateDto {
+  @ApiPropertyOptional({ description: 'First-trip gross amount billed to client' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  firstTripClientBillAmount?: number;
+
+  @ApiPropertyOptional({ description: 'First-trip subcontractor VATable payout base' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  firstTripPayoutVatable?: number;
+
+  @ApiPropertyOptional({ description: 'Start of effective period (ISO)' })
+  @IsOptional()
+  @IsDateString()
+  effectiveStart?: string;
+
+  @ApiPropertyOptional({ description: 'End of effective period (null = clear end)' })
+  @IsOptional()
+  @IsDateString()
+  effectiveEnd?: string;
+}
+
+export class GetWetleaseFirstTripRatesQueryDto {
+  @ApiPropertyOptional({ description: 'Filter by client account ID' })
+  @IsOptional()
+  @IsString()
+  clientAccountId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by service category ID' })
+  @IsOptional()
+  @IsString()
+  serviceCategoryId?: string;
 }

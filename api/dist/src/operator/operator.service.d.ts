@@ -43,6 +43,7 @@ export declare class OperatorService {
             updatedAt: Date;
             tripId: string;
             financeDocReceivedAt: Date | null;
+            clientBillAmount: Prisma.Decimal | null;
             vatableBaseRate: Prisma.Decimal | null;
             nonVatBaseRate: Prisma.Decimal | null;
             payoutBase: Prisma.Decimal | null;

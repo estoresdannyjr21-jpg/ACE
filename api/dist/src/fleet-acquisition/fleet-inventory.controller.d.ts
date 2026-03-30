@@ -20,10 +20,10 @@ export declare class FleetInventoryController {
         updatedAt: Date;
         status: string;
         clientAccountId: string;
-        vehicleId: string;
-        tagType: string;
         effectiveStart: Date;
         effectiveEnd: Date | null;
+        vehicleId: string;
+        tagType: string;
     }>;
     findMany(req: any, query: GetFleetInventoryQueryDto): Promise<({
         clientAccount: {
@@ -42,10 +42,10 @@ export declare class FleetInventoryController {
         updatedAt: Date;
         status: string;
         clientAccountId: string;
-        vehicleId: string;
-        tagType: string;
         effectiveStart: Date;
         effectiveEnd: Date | null;
+        vehicleId: string;
+        tagType: string;
     })[]>;
     findOne(req: any, id: string): Promise<{
         clientAccount: {
@@ -64,10 +64,10 @@ export declare class FleetInventoryController {
         updatedAt: Date;
         status: string;
         clientAccountId: string;
-        vehicleId: string;
-        tagType: string;
         effectiveStart: Date;
         effectiveEnd: Date | null;
+        vehicleId: string;
+        tagType: string;
     }>;
     update(req: any, id: string, dto: UpdateFleetInventoryDto): Promise<{
         clientAccount: {
@@ -84,10 +84,10 @@ export declare class FleetInventoryController {
         updatedAt: Date;
         status: string;
         clientAccountId: string;
-        vehicleId: string;
-        tagType: string;
         effectiveStart: Date;
         effectiveEnd: Date | null;
+        vehicleId: string;
+        tagType: string;
     }>;
     remove(req: any, id: string): Promise<{
         deleted: boolean;

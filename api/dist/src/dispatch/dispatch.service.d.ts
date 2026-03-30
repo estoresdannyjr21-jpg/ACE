@@ -247,8 +247,8 @@ export declare class DispatchService {
         };
         documents: {
             id: string;
-            fileKey: string;
             tripId: string;
+            fileKey: string;
             uploadedAt: Date;
             docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
@@ -332,6 +332,7 @@ export declare class DispatchService {
             updatedAt: Date;
             tripId: string;
             financeDocReceivedAt: Date | null;
+            clientBillAmount: import("@prisma/client/runtime/library").Decimal | null;
             vatableBaseRate: import("@prisma/client/runtime/library").Decimal | null;
             nonVatBaseRate: import("@prisma/client/runtime/library").Decimal | null;
             payoutBase: import("@prisma/client/runtime/library").Decimal | null;
@@ -550,8 +551,8 @@ export declare class DispatchService {
         };
     }): Promise<{
         id: string;
-        fileKey: string;
         tripId: string;
+        fileKey: string;
         uploadedAt: Date;
         docType: import(".prisma/client").$Enums.DocumentType;
         uploadedByUserId: string | null;

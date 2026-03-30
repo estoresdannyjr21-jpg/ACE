@@ -25,6 +25,9 @@ import {
   CreateRouteRateDto,
   UpdateRouteRateDto,
   GetRouteRatesQueryDto,
+  CreateWetleaseFirstTripRateDto,
+  UpdateWetleaseFirstTripRateDto,
+  GetWetleaseFirstTripRatesQueryDto,
 } from './dto';
 
 @ApiTags('Rates')
@@ -74,6 +77,57 @@ export class RatesController {
   @ApiOperation({ summary: 'Get lookup data for rates UI' })
   async lookups(@Request() req) {
     return this.service.getLookups(req.user.tenantId);
+  }
+
+  @Get('wetlease-first-trip')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.MANAGER,
+    UserRole.FINANCE_PERSONNEL,
+    UserRole.FINANCE_MANAGER,
+    UserRole.CFO,
+  )
+  @ApiOperation({
+    summary:
+      'List wetlease first-trip payout rates (effective-dated; same-day 2nd+ trips get 0 trip payout at compute)',
+  })
+  async listWetleaseFirstTrip(@Request() req, @Query() query: GetWetleaseFirstTripRatesQueryDto) {
+    return this.service.listWetleaseFirstTripRates(req.user.tenantId, query);
+  }
+
+  @Post('wetlease-first-trip')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.MANAGER,
+    UserRole.FINANCE_MANAGER,
+    UserRole.CFO,
+  )
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create wetlease first-trip rate row (client + category + effective window)' })
+  async createWetleaseFirstTrip(
+    @Request() req,
+    @Body() dto: CreateWetleaseFirstTripRateDto,
+  ) {
+    return this.service.createWetleaseFirstTripRate(req.user.id, req.user.tenantId, dto);
+  }
+
+  @Patch('wetlease-first-trip/:id')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.MANAGER,
+    UserRole.FINANCE_MANAGER,
+    UserRole.CFO,
+  )
+  @ApiOperation({ summary: 'Update wetlease first-trip rate row' })
+  async updateWetleaseFirstTrip(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: UpdateWetleaseFirstTripRateDto,
+  ) {
+    return this.service.updateWetleaseFirstTripRate(req.user.tenantId, id, dto);
   }
 
   @Get(':id')

@@ -1,1 +1,8 @@
 node_modules
+
+# Web — Vite build + old Next artifacts
+web/dist
+web/.next
+
+# API — Nest build output
+api/dist

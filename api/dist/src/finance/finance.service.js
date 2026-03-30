@@ -17,10 +17,6 @@ const rates_service_1 = require("../rates/rates.service");
 const payslip_service_1 = require("./payslip.service");
 const client_1 = require("@prisma/client");
 const client_2 = require("@prisma/client");
-const WETLEASE_TIERS = {
-    SPX_FM_4WCV_WETLEASE: { first: 2550, rest: 1840 },
-    SPX_FM_6WCV_WETLEASE: { first: 3600, rest: 2520 },
-};
 const VAT_RATE = 1.12;
 const ADMIN_FEE_PCT = 0.02;
 const WITHHOLDING_PCT = 0.02;
@@ -203,12 +199,36 @@ let FinanceService = class FinanceService {
         if (!rate) {
             throw new common_1.BadRequestException('No route rate found for this trip (origin/destination/service/date). Add a rate first.');
         }
-        let vatableBase = Number(rate.tripPayoutRateVatable);
-        const tier = trip.serviceCategory?.code && WETLEASE_TIERS[trip.serviceCategory.code];
-        if (tier) {
-            const isFirst = trip.tripOrder === 1;
-            vatableBase = isFirst ? tier.first : tier.rest;
+        let subcontractorVatable = Number(rate.tripPayoutRateVatable);
+        let clientBill = Number(rate.billRateAmount);
+        const catCode = trip.serviceCategory?.code;
+        if (this.ratesService.isWetleaseCategoryCode(catCode)) {
+            if (!trip.assignedDriverId) {
+                throw new common_1.BadRequestException('Wetlease finance requires an assigned driver. Same-day first trip is the earliest call time for that driver and category.');
+            }
+            const { dayStart, dayEnd } = (0, rates_service_1.utcCalendarDayBounds)(trip.runsheetDate);
+            const firstSub = await this.ratesService.resolveWetleaseFirstTripPayoutAmount(tenantId, trip.clientAccountId, trip.serviceCategoryId, trip.runsheetDate);
+            const firstClient = await this.ratesService.resolveWetleaseFirstTripClientBillAmount(tenantId, trip.clientAccountId, trip.serviceCategoryId, trip.runsheetDate);
+            const sameDayTrips = await this.prisma.trip.findMany({
+                where: {
+                    tenantId,
+                    clientAccountId: trip.clientAccountId,
+                    serviceCategoryId: trip.serviceCategoryId,
+                    assignedDriverId: trip.assignedDriverId,
+                    runsheetDate: { gte: dayStart, lte: dayEnd },
+                },
+                select: { id: true, callTime: true },
+                orderBy: [{ callTime: 'asc' }, { id: 'asc' }],
+            });
+            const idx = sameDayTrips.findIndex((t) => t.id === tripId);
+            if (idx < 0) {
+                throw new common_1.BadRequestException('Trip not found in same-day wetlease sequence (data inconsistency).');
+            }
+            const isFirst = idx === 0;
+            subcontractorVatable = isFirst ? firstSub : 0;
+            clientBill = isFirst ? firstClient : 0;
         }
+        const vatableBase = subcontractorVatable;
         const nonVatBase = vatableBase / VAT_RATE;
         const adminFeeAmount = vatableBase * ADMIN_FEE_PCT;
         const invoiceType = trip.operatorAtAssignment?.invoiceType ?? client_1.InvoiceType.VATABLE;
@@ -233,6 +253,7 @@ let FinanceService = class FinanceService {
         const finance = await this.prisma.tripFinance.upsert({
             where: { tripId },
             update: {
+                clientBillAmount: new client_2.Prisma.Decimal(clientBill),
                 vatableBaseRate: new client_2.Prisma.Decimal(vatableBase),
                 nonVatBaseRate: new client_2.Prisma.Decimal(nonVatBase),
                 payoutBase: new client_2.Prisma.Decimal(payoutBase),
@@ -241,6 +262,7 @@ let FinanceService = class FinanceService {
             },
             create: {
                 tripId,
+                clientBillAmount: new client_2.Prisma.Decimal(clientBill),
                 vatableBaseRate: new client_2.Prisma.Decimal(vatableBase),
                 nonVatBaseRate: new client_2.Prisma.Decimal(nonVatBase),
                 payoutBase: new client_2.Prisma.Decimal(payoutBase),
@@ -255,7 +277,13 @@ let FinanceService = class FinanceService {
                 action: 'UPDATE',
                 entityType: 'FINANCE_COMPUTE',
                 entityId: tripId,
-                changesJson: { vatableBaseRate: vatableBase, payoutBase, adminFeeAmount, netTripPayoutBeforeReimb },
+                changesJson: {
+                    clientBillAmount: clientBill,
+                    vatableBaseRate: vatableBase,
+                    payoutBase,
+                    adminFeeAmount,
+                    netTripPayoutBeforeReimb,
+                },
             });
         }
         return finance;
@@ -993,7 +1021,7 @@ let FinanceService = class FinanceService {
         ]);
         const asOf = new Date();
         const ledger = rows.map((r) => {
-            const amount = toNum(r.vatableBaseRate);
+            const amount = toNum(r.clientBillAmount ?? r.vatableBaseRate);
             const refDate = r.billingLedgerDate ?? r.trip.runsheetDate ?? null;
             return {
                 tripFinanceId: r.id,

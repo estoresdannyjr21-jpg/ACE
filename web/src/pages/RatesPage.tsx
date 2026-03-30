@@ -12,9 +12,9 @@ function downloadCsv(filename: string, content: string) {
   URL.revokeObjectURL(link.href);
 }
 
-// Columns per backend: client_code, service_segment, service_category_code, origin_area_code, destination_area_code, base_rate, currency, effective_from, effective_to
-const RATES_TEMPLATE_CSV = `client_code,service_segment,service_category_code,origin_area_code,destination_area_code,base_rate,currency,effective_from,effective_to
-SPX,FM_ONCALL,SPX_FM_4W_ONCALL,NCR,NCR,1200.00,PHP,2026-01-01,2026-12-31`;
+// Backend accepts either client_rate + subcontractor_rate (AR vs AP) or legacy base_rate (same for both).
+const RATES_TEMPLATE_CSV = `client_code,service_segment,service_category_code,origin_area_code,destination_area_code,client_rate,subcontractor_rate,currency,effective_from,effective_to
+SPX,FM_ONCALL,SPX_FM_4W_ONCALL,NCR,NCR,1500.00,1200.00,PHP,2026-01-01,2026-12-31`;
 
 const IMPORT_MODES = [
   { value: 'upsert', label: 'Upsert (create or update)' },
@@ -118,7 +118,7 @@ export function RatesPage() {
           </a>
         </div>
         <p className="page-subtitle page-subtitle--spaced">
-          Required columns: client_code, service_segment, service_category_code, origin_area_code, destination_area_code, base_rate, currency, effective_from. Optional: effective_to. Segments: FM_ONCALL, FM_WETLEASE, MFM_ONCALL. Run Preview first; Commit is only enabled after a preview.
+          Required: client_code, service_segment, service_category_code, origin_area_code, destination_area_code, currency, effective_from. Plus either <strong>client_rate</strong> and <strong>subcontractor_rate</strong> (bill to client vs pay subcontractor) or legacy <strong>base_rate</strong> (same value for both). Optional: effective_to. Segments: FM_ONCALL, FM_WETLEASE, MFM_ONCALL. Preview before Commit.
         </p>
 
         <div className="form-grid form-grid--import">

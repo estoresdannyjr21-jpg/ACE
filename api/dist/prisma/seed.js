@@ -89,6 +89,49 @@ async function main() {
         });
         console.log(`✅ Created/updated service category: ${category.name} (${cat.payoutTermsBusinessDays} days payout terms)`);
     }
+    const wetleaseSeed = [
+        { code: 'SPX_FM_4WCV_WETLEASE', client: 4100.0, subcontractor: 3100.0 },
+        { code: 'SPX_FM_6WCV_WETLEASE', client: 4333.33, subcontractor: 3333.33 },
+    ];
+    const epochStart = new Date('2020-01-01T00:00:00.000Z');
+    for (const wl of wetleaseSeed) {
+        const wc = await prisma.serviceCategory.findFirst({
+            where: { code: wl.code, clientAccountId: spxAccount.id },
+        });
+        if (!wc)
+            continue;
+        const existingOpen = await prisma.wetleaseFirstTripRate.findFirst({
+            where: {
+                tenantId: tenant.id,
+                clientAccountId: spxAccount.id,
+                serviceCategoryId: wc.id,
+                effectiveEnd: null,
+            },
+        });
+        if (existingOpen) {
+            await prisma.wetleaseFirstTripRate.update({
+                where: { id: existingOpen.id },
+                data: {
+                    firstTripClientBillAmount: wl.client,
+                    firstTripPayoutVatable: wl.subcontractor,
+                },
+            });
+        }
+        else {
+            await prisma.wetleaseFirstTripRate.create({
+                data: {
+                    tenantId: tenant.id,
+                    clientAccountId: spxAccount.id,
+                    serviceCategoryId: wc.id,
+                    firstTripClientBillAmount: wl.client,
+                    firstTripPayoutVatable: wl.subcontractor,
+                    effectiveStart: epochStart,
+                    effectiveEnd: null,
+                },
+            });
+        }
+        console.log(`✅ Wetlease first-trip: ${wl.code} client PHP ${wl.client} / subcontractor PHP ${wl.subcontractor} (from ${epochStart.toISOString().slice(0, 10)})`);
+    }
     console.log('🎉 Seeding completed!');
 }
 main()

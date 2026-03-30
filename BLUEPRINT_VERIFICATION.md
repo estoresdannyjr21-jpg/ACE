@@ -15,8 +15,8 @@ This document verifies the current codebase against the **exact** Phase 1 Consol
 | Operations Dispatch + Trip Monitoring | **Done** | Create trip, operator enforcement, get trips, verify/reject POD |
 | Driver Android App (installable, offline, GPS+photo, acceptance, reminders) | **Gap** | Not implemented in repo (mobile/ placeholder or missing) |
 | POD workflow (upload → verify/reject → verified gate) | **Done** | POD status flow + Finance gate (scan/mark doc only when POD_VERIFIED) |
-| Rates Directory (origin/dest, effective dates, wetlease tiers, bill/pay) | **Partial** | Route rates CRUD + effective dates + runsheet_date matching **done**; **wetlease tier override not implemented** (see §10) |
-| Finance (scan, doc received, computation, AR/AP ledgers) | **Partial** | Scan, mark doc received, compute from rate, batch create **done**; **computation formula and invoice-type logic differ from blueprint** (see §11); **no AR/AP ledger APIs or aging** |
+| Rates Directory (origin/dest, effective dates, wetlease tiers, bill/pay) | **Partial** | Route rates CRUD + effective dates + runsheet_date matching **done**; **wetlease first-trip rates** effective-dated + finance compute **done** (see §10) |
+| Finance (scan, doc received, computation, AR/AP ledgers) | **Partial** | Scan, mark doc received, compute from rate, batch create **done**; **trip payout computation** in `FinanceService.computeTripFinance` follows blueprint §11.3 (2% admin on vatable base, `payout_base` by operator `invoiceType`, net before reimb); **no AR/AP ledger APIs or aging** |
 | Payout batching + approvals (Fin Mgr, CFO) + payslips after CFO approval | **Partial** | Batch create, Fin Mgr/CFO approve **done**; **payslip generation/download not implemented**; **RELEASED/PAID** not used |
 | Incident Reporting (driver + coordinator + finance visibility) | **Done** | Create, updates, resolve, close, media; Finance roles can view |
 | Dashboards (Operations + Finance, KPIs, aging, compliance, incidents) | **Gap** | Web has placeholder pages (dispatch, finance, etc.); **no KPI widgets, filters, or dashboard APIs per blueprint** |
@@ -46,7 +46,7 @@ This document verifies the current codebase against the **exact** Phase 1 Consol
 | Client: Shopee Express (SPX) | **Done** | Seed creates SPX |
 | 8 categories (FM 4W/6WCV/10W Oncall, 4WCV/6WCV Wetlease, MEGA FM 6W/10W, MFM Shunting 6W) | **Done** | Seed matches names and segment types |
 | Segment fields (AB status, runsheet date, vehicle type, driver, plate, route code, trip order, call time, stops, POD) | **Partial** | Trip has all fields; **stops/events/documents** exist in schema but **trip creation does not create stops**; POD = document upload + verify/reject |
-| Wetlease tier (4WCV: 2550/1840, 6WCV: 3600/2520 by trip_order) | **Gap** | **Not implemented**; computation uses route rate only |
+| Wetlease (first trip / day + same-day extras) | **Done** | **WetleaseFirstTripRate** table (effective dates) + compute: earliest `call_time` per driver/category/`runsheetDate` gets configured first-trip amount (e.g. 4100 / 4333.33); **same-day additional trips = PHP 0 trip payout**, reimbursables unchanged. Still requires matching **route_rates** row for lane/date. |
 
 ---
 
@@ -125,7 +125,7 @@ This document verifies the current codebase against the **exact** Phase 1 Consol
 |----------------|--------|--------|
 | route_rates (client, service_category, origin, destination, effective_start, effective_end, bill_rate, trip_payout_rate_vatable) | **Done** | |
 | Match by client + category + origin + destination; trip date = runsheet_date; effective_end | **Done** | getActiveRateForTrip used in finance compute |
-| **Wetlease tier override** (4WCV: 2550/1840, 6WCV: 3600/2520 by trip_order) | **Gap** | **Not implemented**; finance uses directory rate only |
+| **Wetlease first-trip amounts + same-day zero payout** | **Done** | **GET/POST/PATCH `/rates/wetlease-first-trip`** + seed; amounts **effective-dated** (like route rates). |
 | Effective end: block trip creation if rate expired unless Admin override; alerts for rates ending soon | **Gap** | No check on trip create; no alerts |
 
 ---
@@ -136,9 +136,7 @@ This document verifies the current codebase against the **exact** Phase 1 Consol
 |----------------|--------|--------|
 | Finance gate (POD_VERIFIED, finance_doc_received_at) | **Done** | |
 | trip_finance snapshot + billing/payout ledger fields | **Partial** | Snapshot and payout status **done**; **billing ledger/AR not exposed** |
-| **Payout computation formula** | **Partial** | **Differs from blueprint:** |
-| | | Blueprint: **Non-Vat Base = Vatable ÷ 1.12**; **Admin Fee = 2% of Vatable Base**; **payout_base by invoice type** (VATABLE = Vatable Base; NON_VATABLE = Non-Vat Base; NO_OR = formula with 12% and 2% withholding); **net_trip_payout_before_reimb = payout_base − admin_fee**. |
-| | | Current: **adminFee = billRate − payoutRate** (margin); **payoutBase = tripPayoutRateVatable**; **no invoice_type** or nonVatBaseRate/NO_OR logic; **netTripPayoutBeforeReimb = payoutRate** (no admin deduction in current formula). |
+| **Payout computation formula** | **Done** (trip side) | Implemented in `computeTripFinance`: **Non-Vat Base = Vatable ÷ 1.12**; **Admin Fee = 2% × Vatable Base**; **payout_base** from operator `invoiceType` at assignment (`VATABLE` / `NON_VATABLE` / `NO_OR`); **net_trip_payout_before_reimb = max(0, payout_base − admin_fee)**. Payout batches snapshot `netTripPayoutBeforeReimb` and `adminFee`. **Confirm NO_OR numeric terms** against your signed-off spec if amounts must match an external worksheet exactly. |
 | Reimbursables (toll/gas/parking, status DRAFT→SUBMITTED→APPROVED/REJECTED; only APPROVED in batch) | **Gap** | Schema has fields; **no API to encode or update reimbursable status**; batch uses approvedReimbursableAmount but it’s never set by workflow |
 | AR: READY_TO_BILL → BILLED → PAID; aging | **Gap** | Schema only; no APIs or reports |
 | AP: READY_FOR_PAYOUT → IN_BATCH → … → PAID; due date from business-day logic | **Partial** | Status flow and batch **done**; **payoutDueDate not computed**; RELEASED/PAID not used in flow |

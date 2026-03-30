@@ -27,11 +27,12 @@ model Tenant {
   drivers           Driver[]
   vehicles          Vehicle[]
   trips             Trip[]
-  routeRates        RouteRate[]
-  payoutBatches     PayoutBatch[]
-  arBatches         ArBatch[]
-  auditLogs         AuditLog[]
-  driverAvailability DriverAvailability[]
+  routeRates               RouteRate[]
+  wetleaseFirstTripRates   WetleaseFirstTripRate[]
+  payoutBatches            PayoutBatch[]
+  arBatches                ArBatch[]
+  auditLogs                AuditLog[]
+  driverAvailability       DriverAvailability[]
 
   @@map("tenants")
 }
@@ -115,10 +116,11 @@ model ClientAccount {
   serviceCategories ServiceCategory[]
   serviceConfigs    ClientServiceConfig[]
   trips             Trip[]
-  routeRates        RouteRate[]
-  fleetInventory    FleetInventory[]
-  payoutBatches     PayoutBatch[]
-  arBatches         ArBatch[]
+  routeRates              RouteRate[]
+  wetleaseFirstTripRates  WetleaseFirstTripRate[]
+  fleetInventory          FleetInventory[]
+  payoutBatches            PayoutBatch[]
+  arBatches               ArBatch[]
 
   @@map("client_accounts")
 }
@@ -135,8 +137,9 @@ model ServiceCategory {
 
   clientAccount ClientAccount    @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
   serviceConfig ClientServiceConfig?
-  trips         Trip[]
-  routeRates    RouteRate[]
+  trips                    Trip[]
+  routeRates               RouteRate[]
+  wetleaseFirstTripRates   WetleaseFirstTripRate[]
 
   @@map("service_categories")
 }
@@ -616,6 +619,27 @@ model RouteRate {
   @@map("route_rates")
 }
 
+// Wetlease: effective-dated first-trip VATable payout; same-day 2nd+ trips = 0 trip payout (reimbursables still apply).
+model WetleaseFirstTripRate {
+  id                        String    @id @default(cuid())
+  tenantId                  String
+  clientAccountId           String
+  serviceCategoryId         String
+  firstTripClientBillAmount Decimal?  @db.Decimal(14, 4)
+  firstTripPayoutVatable    Decimal   @db.Decimal(14, 4)
+  effectiveStart            DateTime
+  effectiveEnd              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientAccount   ClientAccount   @relation(fields: [clientAccountId], references: [id])
+  serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id])
+
+  @@index([tenantId, clientAccountId, serviceCategoryId])
+  @@map("wetlease_first_trip_rates")
+}
+
 // ============================================
 // FINANCE
 // ============================================
@@ -646,6 +670,9 @@ model TripFinance {
   id                          String            @id @default(cuid())
   tripId                      String            @unique
   financeDocReceivedAt        DateTime?
+  // Gross / client billing amount for AR (from route billRateAmount or wetlease client tier).
+  clientBillAmount            Decimal?          @db.Decimal(12, 2)
+  // Subcontractor vatable base before invoice-type split & admin fee (AP / payout side).
   vatableBaseRate             Decimal?          @db.Decimal(12, 2)
   nonVatBaseRate              Decimal?          @db.Decimal(12, 2)
   payoutBase                  Decimal?          @db.Decimal(12, 2)

@@ -23,3 +23,21 @@ export declare class GetRouteRatesQueryDto {
     destinationArea?: string;
     effectiveOn?: string;
 }
+export declare class CreateWetleaseFirstTripRateDto {
+    clientAccountId: string;
+    serviceCategoryId: string;
+    firstTripClientBillAmount: number;
+    firstTripPayoutVatable: number;
+    effectiveStart: string;
+    effectiveEnd?: string;
+}
+export declare class UpdateWetleaseFirstTripRateDto {
+    firstTripClientBillAmount?: number;
+    firstTripPayoutVatable?: number;
+    effectiveStart?: string;
+    effectiveEnd?: string;
+}
+export declare class GetWetleaseFirstTripRatesQueryDto {
+    clientAccountId?: string;
+    serviceCategoryId?: string;
+}

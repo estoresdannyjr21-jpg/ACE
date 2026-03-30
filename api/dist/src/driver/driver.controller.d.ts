@@ -127,8 +127,8 @@ export declare class DriverController {
         };
         documents: {
             id: string;
-            fileKey: string;
             tripId: string;
+            fileKey: string;
             uploadedAt: Date;
             docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
@@ -339,8 +339,8 @@ export declare class DriverController {
     }>;
     uploadReimbursableDoc(req: any, id: string, dto: UploadReimbursableDocDto): Promise<{
         id: string;
-        fileKey: string;
         tripId: string;
+        fileKey: string;
         uploadedAt: Date;
         docType: import(".prisma/client").$Enums.DocumentType;
         uploadedByUserId: string | null;

@@ -1,5 +1,5 @@
 import { RatesService } from './rates.service';
-import { CreateRouteRateDto, UpdateRouteRateDto, GetRouteRatesQueryDto } from './dto';
+import { CreateRouteRateDto, UpdateRouteRateDto, GetRouteRatesQueryDto, CreateWetleaseFirstTripRateDto, UpdateWetleaseFirstTripRateDto, GetWetleaseFirstTripRatesQueryDto } from './dto';
 export declare class RatesController {
     private readonly service;
     constructor(service: RatesService);
@@ -64,6 +64,75 @@ export declare class RatesController {
                 code: string;
             }[];
         }[];
+    }>;
+    listWetleaseFirstTrip(req: any, query: GetWetleaseFirstTripRatesQueryDto): Promise<({
+        clientAccount: {
+            id: string;
+            name: string;
+            code: string;
+        };
+        serviceCategory: {
+            id: string;
+            name: string;
+            code: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        clientAccountId: string;
+        serviceCategoryId: string;
+        firstTripClientBillAmount: import("@prisma/client/runtime/library").Decimal | null;
+        firstTripPayoutVatable: import("@prisma/client/runtime/library").Decimal;
+        effectiveStart: Date;
+        effectiveEnd: Date | null;
+    })[]>;
+    createWetleaseFirstTrip(req: any, dto: CreateWetleaseFirstTripRateDto): Promise<{
+        clientAccount: {
+            id: string;
+            name: string;
+            code: string;
+        };
+        serviceCategory: {
+            id: string;
+            name: string;
+            code: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        clientAccountId: string;
+        serviceCategoryId: string;
+        firstTripClientBillAmount: import("@prisma/client/runtime/library").Decimal | null;
+        firstTripPayoutVatable: import("@prisma/client/runtime/library").Decimal;
+        effectiveStart: Date;
+        effectiveEnd: Date | null;
+    }>;
+    updateWetleaseFirstTrip(req: any, id: string, dto: UpdateWetleaseFirstTripRateDto): Promise<{
+        clientAccount: {
+            id: string;
+            name: string;
+            code: string;
+        };
+        serviceCategory: {
+            id: string;
+            name: string;
+            code: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        clientAccountId: string;
+        serviceCategoryId: string;
+        firstTripClientBillAmount: import("@prisma/client/runtime/library").Decimal | null;
+        firstTripPayoutVatable: import("@prisma/client/runtime/library").Decimal;
+        effectiveStart: Date;
+        effectiveEnd: Date | null;
     }>;
     findOne(req: any, id: string): Promise<{
         clientAccount: {

@@ -34,6 +34,15 @@ let RatesController = class RatesController {
     async lookups(req) {
         return this.service.getLookups(req.user.tenantId);
     }
+    async listWetleaseFirstTrip(req, query) {
+        return this.service.listWetleaseFirstTripRates(req.user.tenantId, query);
+    }
+    async createWetleaseFirstTrip(req, dto) {
+        return this.service.createWetleaseFirstTripRate(req.user.id, req.user.tenantId, dto);
+    }
+    async updateWetleaseFirstTrip(req, id, dto) {
+        return this.service.updateWetleaseFirstTripRate(req.user.tenantId, id, dto);
+    }
     async findOne(req, id) {
         return this.service.getRouteRateById(req.user.tenantId, id);
     }
@@ -88,6 +97,40 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], RatesController.prototype, "lookups", null);
+__decorate([
+    (0, common_1.Get)('wetlease-first-trip'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.FINANCE_PERSONNEL, client_1.UserRole.FINANCE_MANAGER, client_1.UserRole.CFO),
+    (0, swagger_1.ApiOperation)({
+        summary: 'List wetlease first-trip payout rates (effective-dated; same-day 2nd+ trips get 0 trip payout at compute)',
+    }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.GetWetleaseFirstTripRatesQueryDto]),
+    __metadata("design:returntype", Promise)
+], RatesController.prototype, "listWetleaseFirstTrip", null);
+__decorate([
+    (0, common_1.Post)('wetlease-first-trip'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.FINANCE_MANAGER, client_1.UserRole.CFO),
+    (0, common_1.HttpCode)(common_1.HttpStatus.CREATED),
+    (0, swagger_1.ApiOperation)({ summary: 'Create wetlease first-trip rate row (client + category + effective window)' }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.CreateWetleaseFirstTripRateDto]),
+    __metadata("design:returntype", Promise)
+], RatesController.prototype, "createWetleaseFirstTrip", null);
+__decorate([
+    (0, common_1.Patch)('wetlease-first-trip/:id'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.FINANCE_MANAGER, client_1.UserRole.CFO),
+    (0, swagger_1.ApiOperation)({ summary: 'Update wetlease first-trip rate row' }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, dto_1.UpdateWetleaseFirstTripRateDto]),
+    __metadata("design:returntype", Promise)
+], RatesController.prototype, "updateWetleaseFirstTrip", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.FINANCE_PERSONNEL, client_1.UserRole.FINANCE_MANAGER, client_1.UserRole.CFO),

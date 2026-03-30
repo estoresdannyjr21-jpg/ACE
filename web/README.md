@@ -1,5 +1,7 @@
 # Ace Truckers ERP — Web (Dashboards)
 
+The dashboard is a **Vite + React** SPA under **`src/`** (`index.html`, `src/main.tsx`, `src/App.tsx`). Legacy Next.js routes under `app/` have been removed; do not reintroduce a second framework in this package.
+
 Minimal React app with **Finance** and **Operations** dashboards.
 
 - **Finance:** `GET /finance/lookups`, `GET /finance/dashboard` (with optional filters: date range, client, service category, operator).
@@ -12,10 +14,12 @@ cd web
 npm install
 ```
 
+Optional: copy **`.env.example`** to **`.env`** in this folder. For local dev the defaults are usually enough (`VITE_API_URL=/api` uses the Vite proxy to the API on port 3001).
+
 ## Run
 
-1. Start the API (from repo root): `cd api && npm run start:dev` (default port 3001).
-2. Copy `.env.example` to `.env` and set `VITE_API_URL` if needed (default `/api` uses Vite proxy to `http://localhost:3001`).
+1. Configure the API: copy **`api/.env.example`** to **`api/.env`**, set `DATABASE_URL`, then start the API: `cd api && npm run start:dev` (default port **3001**).
+2. `VITE_API_URL` — if unset, **`/api`** uses the Vite proxy to `http://localhost:3001` (see `vite.config.ts`).
 3. For authenticated requests, set `VITE_AUTH_TOKEN` in `.env` or in browser: `sessionStorage.setItem('auth_token', 'YOUR_JWT')`.
 4. Start the web app: `npm run dev` (default http://localhost:3000).
 

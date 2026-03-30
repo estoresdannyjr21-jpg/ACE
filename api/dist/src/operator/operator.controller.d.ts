@@ -45,6 +45,7 @@ export declare class OperatorController {
             updatedAt: Date;
             tripId: string;
             financeDocReceivedAt: Date | null;
+            clientBillAmount: import("@prisma/client/runtime/library").Decimal | null;
             vatableBaseRate: import("@prisma/client/runtime/library").Decimal | null;
             nonVatBaseRate: import("@prisma/client/runtime/library").Decimal | null;
             payoutBase: import("@prisma/client/runtime/library").Decimal | null;

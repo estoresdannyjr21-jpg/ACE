@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { RatesService } from '../rates/rates.service';
+import { RatesService, utcCalendarDayBounds } from '../rates/rates.service';
 import { PayslipService } from './payslip.service';
 import {
   BillingStatus,
@@ -20,11 +20,6 @@ import {
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
-/** Blueprint §10.3: Wetlease tier override (PHP). trip_order 1 = 1st trip. */
-const WETLEASE_TIERS: Record<string, { first: number; rest: number }> = {
-  SPX_FM_4WCV_WETLEASE: { first: 2550, rest: 1840 },
-  SPX_FM_6WCV_WETLEASE: { first: 3600, rest: 2520 },
-};
 const VAT_RATE = 1.12;
 const ADMIN_FEE_PCT = 0.02;
 const WITHHOLDING_PCT = 0.02;
@@ -206,8 +201,9 @@ export class FinanceService {
 
   /**
    * Compute trip finance per blueprint §11.3:
-   * Vatable Base = rate or wetlease tier; Non-Vat = Vatable/1.12;
-   * Admin Fee = 2% of Vatable Base; payout_base by operator invoice type;
+   * Vatable Base = route rate, or wetlease: first trip of day (per driver) from WetleaseFirstTripRate;
+   *   same-day additional wetlease trips = 0 trip payout (reimbursables unchanged).
+   * Non-Vat = Vatable/1.12; Admin Fee = 2% of Vatable Base; payout_base by operator invoice type;
    * net_trip_payout_before_reimb = payout_base − admin_fee.
    */
   async computeTripFinance(tenantId: string, tripId: string, userId?: string) {
@@ -239,13 +235,50 @@ export class FinanceService {
       );
     }
 
-    // Vatable Base Rate: from directory or wetlease tier (§10.3)
-    let vatableBase = Number(rate.tripPayoutRateVatable);
-    const tier = trip.serviceCategory?.code && WETLEASE_TIERS[trip.serviceCategory.code];
-    if (tier) {
-      const isFirst = trip.tripOrder === 1;
-      vatableBase = isFirst ? tier.first : tier.rest;
+    // Subcontractor (AP): tripPayoutRateVatable; Client (AR): billRateAmount — split for margin.
+    let subcontractorVatable = Number(rate.tripPayoutRateVatable);
+    let clientBill = Number(rate.billRateAmount);
+    const catCode = trip.serviceCategory?.code;
+    if (this.ratesService.isWetleaseCategoryCode(catCode)) {
+      if (!trip.assignedDriverId) {
+        throw new BadRequestException(
+          'Wetlease finance requires an assigned driver. Same-day first trip is the earliest call time for that driver and category.',
+        );
+      }
+      const { dayStart, dayEnd } = utcCalendarDayBounds(trip.runsheetDate);
+      const firstSub = await this.ratesService.resolveWetleaseFirstTripPayoutAmount(
+        tenantId,
+        trip.clientAccountId,
+        trip.serviceCategoryId,
+        trip.runsheetDate,
+      );
+      const firstClient = await this.ratesService.resolveWetleaseFirstTripClientBillAmount(
+        tenantId,
+        trip.clientAccountId,
+        trip.serviceCategoryId,
+        trip.runsheetDate,
+      );
+      const sameDayTrips = await this.prisma.trip.findMany({
+        where: {
+          tenantId,
+          clientAccountId: trip.clientAccountId,
+          serviceCategoryId: trip.serviceCategoryId,
+          assignedDriverId: trip.assignedDriverId,
+          runsheetDate: { gte: dayStart, lte: dayEnd },
+        },
+        select: { id: true, callTime: true },
+        orderBy: [{ callTime: 'asc' }, { id: 'asc' }],
+      });
+      const idx = sameDayTrips.findIndex((t) => t.id === tripId);
+      if (idx < 0) {
+        throw new BadRequestException('Trip not found in same-day wetlease sequence (data inconsistency).');
+      }
+      const isFirst = idx === 0;
+      subcontractorVatable = isFirst ? firstSub : 0;
+      clientBill = isFirst ? firstClient : 0;
     }
+
+    const vatableBase = subcontractorVatable;
 
     const nonVatBase = vatableBase / VAT_RATE;
     const adminFeeAmount = vatableBase * ADMIN_FEE_PCT;
@@ -275,6 +308,7 @@ export class FinanceService {
     const finance = await this.prisma.tripFinance.upsert({
       where: { tripId },
       update: {
+        clientBillAmount: new Prisma.Decimal(clientBill),
         vatableBaseRate: new Prisma.Decimal(vatableBase),
         nonVatBaseRate: new Prisma.Decimal(nonVatBase),
         payoutBase: new Prisma.Decimal(payoutBase),
@@ -283,6 +317,7 @@ export class FinanceService {
       },
       create: {
         tripId,
+        clientBillAmount: new Prisma.Decimal(clientBill),
         vatableBaseRate: new Prisma.Decimal(vatableBase),
         nonVatBaseRate: new Prisma.Decimal(nonVatBase),
         payoutBase: new Prisma.Decimal(payoutBase),
@@ -298,7 +333,13 @@ export class FinanceService {
         action: 'UPDATE',
         entityType: 'FINANCE_COMPUTE',
         entityId: tripId,
-        changesJson: { vatableBaseRate: vatableBase, payoutBase, adminFeeAmount, netTripPayoutBeforeReimb },
+        changesJson: {
+          clientBillAmount: clientBill,
+          vatableBaseRate: vatableBase,
+          payoutBase,
+          adminFeeAmount,
+          netTripPayoutBeforeReimb,
+        },
       });
     }
     return finance;
@@ -1167,7 +1208,7 @@ export class FinanceService {
 
     const asOf = new Date();
     const ledger = rows.map((r) => {
-      const amount = toNum(r.vatableBaseRate);
+      const amount = toNum(r.clientBillAmount ?? r.vatableBaseRate);
       const refDate = r.billingLedgerDate ?? r.trip.runsheetDate ?? null;
       return {
         tripFinanceId: r.id,

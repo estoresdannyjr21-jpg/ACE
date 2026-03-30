@@ -6,8 +6,37 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { CreateRouteRateDto, UpdateRouteRateDto, GetRouteRatesQueryDto } from './dto';
+import {
+  CreateRouteRateDto,
+  UpdateRouteRateDto,
+  GetRouteRatesQueryDto,
+  CreateWetleaseFirstTripRateDto,
+  UpdateWetleaseFirstTripRateDto,
+} from './dto';
 import { Prisma } from '@prisma/client';
+
+/** SPX FM wetlease: one paid first trip per driver per runsheet day; same-day extras = PHP 0 trip payout (reimbursables still apply). */
+export const WETLEASE_CATEGORY_CODES: ReadonlySet<string> = new Set([
+  'SPX_FM_4WCV_WETLEASE',
+  'SPX_FM_6WCV_WETLEASE',
+]);
+
+/** When no DB row: client = bill to SPX; subcontractor = AP vatable base (first trip / day). */
+const WETLEASE_FIRST_TRIP_FALLBACK: Record<string, { client: number; subcontractor: number }> = {
+  SPX_FM_4WCV_WETLEASE: { client: 4100.0, subcontractor: 3100.0 },
+  SPX_FM_6WCV_WETLEASE: { client: 4333.33, subcontractor: 3333.33 },
+};
+
+/** Interpret runsheetDate as a UTC calendar day (matches typical `YYYY-MM-DDT00:00:00.000Z` storage). */
+export function utcCalendarDayBounds(d: Date): { dayStart: Date; dayEnd: Date } {
+  const y = d.getUTCFullYear();
+  const mObj = d.getUTCMonth();
+  const day = d.getUTCDate();
+  return {
+    dayStart: new Date(Date.UTC(y, mObj, day, 0, 0, 0, 0)),
+    dayEnd: new Date(Date.UTC(y, mObj, day, 23, 59, 59, 999)),
+  };
+}
 
 @Injectable()
 export class RatesService {
@@ -228,6 +257,232 @@ export class RatesService {
     return rate ?? null;
   }
 
+  isWetleaseCategoryCode(code: string | null | undefined): boolean {
+    return !!code && WETLEASE_CATEGORY_CODES.has(code);
+  }
+
+  /**
+   * Active first-trip wetlease payout for `asOfDate` (usually trip.runsheetDate).
+   * Falls back to code defaults if no row exists (dev / legacy DB).
+   */
+  async resolveWetleaseFirstTripPayoutAmount(
+    tenantId: string,
+    clientAccountId: string,
+    serviceCategoryId: string,
+    asOfDate: Date,
+  ): Promise<number> {
+    const row = await this.prisma.wetleaseFirstTripRate.findFirst({
+      where: {
+        tenantId,
+        clientAccountId,
+        serviceCategoryId,
+        effectiveStart: { lte: asOfDate },
+        OR: [{ effectiveEnd: null }, { effectiveEnd: { gte: asOfDate } }],
+      },
+      orderBy: { effectiveStart: 'desc' },
+    });
+    if (row) {
+      return Number(row.firstTripPayoutVatable);
+    }
+    const cat = await this.prisma.serviceCategory.findFirst({
+      where: { id: serviceCategoryId, clientAccountId },
+      select: { code: true },
+    });
+    const code = cat?.code;
+    const fb = code ? WETLEASE_FIRST_TRIP_FALLBACK[code] : undefined;
+    if (fb) {
+      return fb.subcontractor;
+    }
+    throw new BadRequestException(
+      'No wetlease first-trip rate row for this category and date. Add one under GET /rates/wetlease-first-trip or seed the table.',
+    );
+  }
+
+  async resolveWetleaseFirstTripClientBillAmount(
+    tenantId: string,
+    clientAccountId: string,
+    serviceCategoryId: string,
+    asOfDate: Date,
+  ): Promise<number> {
+    const row = await this.prisma.wetleaseFirstTripRate.findFirst({
+      where: {
+        tenantId,
+        clientAccountId,
+        serviceCategoryId,
+        effectiveStart: { lte: asOfDate },
+        OR: [{ effectiveEnd: null }, { effectiveEnd: { gte: asOfDate } }],
+      },
+      orderBy: { effectiveStart: 'desc' },
+    });
+    if (row?.firstTripClientBillAmount != null) {
+      return Number(row.firstTripClientBillAmount);
+    }
+    const cat = await this.prisma.serviceCategory.findFirst({
+      where: { id: serviceCategoryId, clientAccountId },
+      select: { code: true },
+    });
+    const code = cat?.code;
+    const fb = code ? WETLEASE_FIRST_TRIP_FALLBACK[code] : undefined;
+    if (fb) {
+      return fb.client;
+    }
+    throw new BadRequestException(
+      'No wetlease client bill amount for this category and date. Set firstTripClientBillAmount on the wetlease rate row.',
+    );
+  }
+
+  async listWetleaseFirstTripRates(
+    tenantId: string,
+    query: { clientAccountId?: string; serviceCategoryId?: string },
+  ) {
+    return this.prisma.wetleaseFirstTripRate.findMany({
+      where: {
+        tenantId,
+        ...(query.clientAccountId && { clientAccountId: query.clientAccountId }),
+        ...(query.serviceCategoryId && { serviceCategoryId: query.serviceCategoryId }),
+      },
+      include: {
+        clientAccount: { select: { id: true, name: true, code: true } },
+        serviceCategory: { select: { id: true, name: true, code: true } },
+      },
+      orderBy: [{ serviceCategory: { code: 'asc' } }, { effectiveStart: 'desc' }],
+    });
+  }
+
+  async createWetleaseFirstTripRate(userId: string, tenantId: string, dto: CreateWetleaseFirstTripRateDto) {
+    await this.validateClientAndCategory(tenantId, dto.clientAccountId, dto.serviceCategoryId);
+    await this.assertWetleaseCategoryOrThrow(tenantId, dto.serviceCategoryId);
+
+    const effectiveStart = new Date(dto.effectiveStart);
+    const effectiveEnd = dto.effectiveEnd ? new Date(dto.effectiveEnd) : null;
+    if (effectiveEnd && effectiveEnd <= effectiveStart) {
+      throw new BadRequestException('effectiveEnd must be after effectiveStart');
+    }
+
+    const endOfTime = new Date('9999-12-31');
+    const overlapping = await this.prisma.wetleaseFirstTripRate.findFirst({
+      where: {
+        tenantId,
+        clientAccountId: dto.clientAccountId,
+        serviceCategoryId: dto.serviceCategoryId,
+        effectiveStart: { lte: effectiveEnd ?? endOfTime },
+        OR: [{ effectiveEnd: null }, { effectiveEnd: { gte: effectiveStart } }],
+      },
+    });
+    if (overlapping) {
+      throw new ConflictException(
+        'A wetlease first-trip rate already exists for this client/category with an overlapping effective period',
+      );
+    }
+
+    const row = await this.prisma.wetleaseFirstTripRate.create({
+      data: {
+        tenantId,
+        clientAccountId: dto.clientAccountId,
+        serviceCategoryId: dto.serviceCategoryId,
+        firstTripClientBillAmount: new Prisma.Decimal(dto.firstTripClientBillAmount),
+        firstTripPayoutVatable: new Prisma.Decimal(dto.firstTripPayoutVatable),
+        effectiveStart,
+        effectiveEnd,
+      },
+      include: {
+        clientAccount: { select: { id: true, name: true, code: true } },
+        serviceCategory: { select: { id: true, name: true, code: true } },
+      },
+    });
+
+    await this.audit.log({
+      tenantId,
+      userId,
+      action: 'CREATE',
+      entityType: 'WETLEASE_FIRST_TRIP_RATE',
+      entityId: row.id,
+      changesJson: {
+        serviceCategoryId: dto.serviceCategoryId,
+        firstTripPayoutVatable: dto.firstTripPayoutVatable,
+        effectiveStart: dto.effectiveStart,
+        effectiveEnd: dto.effectiveEnd ?? null,
+      },
+    });
+
+    return row;
+  }
+
+  async updateWetleaseFirstTripRate(
+    tenantId: string,
+    id: string,
+    dto: UpdateWetleaseFirstTripRateDto,
+  ) {
+    const existing = await this.prisma.wetleaseFirstTripRate.findFirst({
+      where: { id, tenantId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Wetlease first-trip rate not found');
+    }
+
+    const effectiveStart = dto.effectiveStart
+      ? new Date(dto.effectiveStart)
+      : existing.effectiveStart;
+    const effectiveEnd =
+      dto.effectiveEnd !== undefined
+        ? dto.effectiveEnd
+          ? new Date(dto.effectiveEnd)
+          : null
+        : existing.effectiveEnd;
+    if (effectiveEnd && effectiveEnd <= effectiveStart) {
+      throw new BadRequestException('effectiveEnd must be after effectiveStart');
+    }
+
+    const endOfTime = new Date('9999-12-31');
+    const overlapping = await this.prisma.wetleaseFirstTripRate.findFirst({
+      where: {
+        tenantId,
+        clientAccountId: existing.clientAccountId,
+        serviceCategoryId: existing.serviceCategoryId,
+        id: { not: id },
+        effectiveStart: { lte: effectiveEnd ?? endOfTime },
+        OR: [{ effectiveEnd: null }, { effectiveEnd: { gte: effectiveStart } }],
+      },
+    });
+    if (overlapping) {
+      throw new ConflictException(
+        'Another wetlease first-trip rate overlaps this effective period for the same client/category',
+      );
+    }
+
+    return this.prisma.wetleaseFirstTripRate.update({
+      where: { id },
+      data: {
+        ...(dto.firstTripClientBillAmount !== undefined && {
+          firstTripClientBillAmount: new Prisma.Decimal(dto.firstTripClientBillAmount),
+        }),
+        ...(dto.firstTripPayoutVatable !== undefined && {
+          firstTripPayoutVatable: new Prisma.Decimal(dto.firstTripPayoutVatable),
+        }),
+        ...(dto.effectiveStart !== undefined && { effectiveStart: new Date(dto.effectiveStart) }),
+        ...(dto.effectiveEnd !== undefined && {
+          effectiveEnd: dto.effectiveEnd ? new Date(dto.effectiveEnd) : null,
+        }),
+      },
+      include: {
+        clientAccount: { select: { id: true, name: true, code: true } },
+        serviceCategory: { select: { id: true, name: true, code: true } },
+      },
+    });
+  }
+
+  private async assertWetleaseCategoryOrThrow(tenantId: string, serviceCategoryId: string) {
+    const cat = await this.prisma.serviceCategory.findFirst({
+      where: { id: serviceCategoryId, clientAccount: { tenantId } },
+      select: { code: true },
+    });
+    if (!cat?.code || !WETLEASE_CATEGORY_CODES.has(cat.code)) {
+      throw new BadRequestException(
+        'Wetlease first-trip rates apply only to SPX_FM_4WCV_WETLEASE or SPX_FM_6WCV_WETLEASE categories',
+      );
+    }
+  }
+
   private async validateClientAndCategory(
     tenantId: string,
     clientAccountId: string,
@@ -248,11 +503,11 @@ export class RatesService {
   /**
    * Import route rates from CSV.
    * Columns (header, comma-separated):
-   * client_code,service_segment,service_category_code,origin_area_code,destination_area_code,base_rate,currency,effective_from,effective_to,notes
-   *
-   * - base_rate is applied to both billRateAmount and tripPayoutRateVatable (Phase 1 simplification).
-   * - effective_to can be blank (open-ended).
-   * - commit=false (default) -> preview only, no DB changes.
+   * client_code,service_segment,service_category_code,origin_area_code,destination_area_code,currency,effective_from,effective_to,notes
+   * Plus either:
+   * - **client_rate** and **subcontractor_rate** (recommended): bill to client vs pay subcontractor; or
+   * - **base_rate** (legacy): same value stored as both AR and AP rates.
+   * effective_to can be blank (open-ended). commit=false (default) -> preview only.
    */
   async importRatesFromCsv(params: {
     userId: string;
@@ -278,13 +533,20 @@ export class RatesService {
     }
 
     const header = lines[0].split(',').map((h) => h.trim());
+    const hasSplitRates =
+      header.includes('client_rate') && header.includes('subcontractor_rate');
+    const hasLegacyBase = header.includes('base_rate');
+    if (!hasSplitRates && !hasLegacyBase) {
+      throw new BadRequestException(
+        'CSV must include base_rate (legacy, same for client bill and subcontractor payout) or both client_rate and subcontractor_rate',
+      );
+    }
     const requiredCols = [
       'client_code',
       'service_segment',
       'service_category_code',
       'origin_area_code',
       'destination_area_code',
-      'base_rate',
       'currency',
       'effective_from',
     ];
@@ -301,6 +563,8 @@ export class RatesService {
     const idxOrigin = colIndex('origin_area_code');
     const idxDest = colIndex('destination_area_code');
     const idxBaseRate = colIndex('base_rate');
+    const idxClientRate = colIndex('client_rate');
+    const idxSubcontractorRate = colIndex('subcontractor_rate');
     const idxCurrency = colIndex('currency');
     const idxEffFrom = colIndex('effective_from');
     const idxEffTo = header.indexOf('effective_to');
@@ -312,7 +576,8 @@ export class RatesService {
       serviceCategoryCode: string;
       originArea: string;
       destinationArea: string;
-      baseRate: number;
+      clientRate: number;
+      subcontractorRate: number;
       currency: string;
       effectiveStart: Date;
       effectiveEnd: Date | null;
@@ -338,7 +603,9 @@ export class RatesService {
       const serviceCategoryCode = cols[idxCategory] || '';
       const originArea = cols[idxOrigin] || '';
       const destinationArea = cols[idxDest] || '';
-      const baseRateStr = cols[idxBaseRate] || '';
+      const baseRateStr = idxBaseRate >= 0 ? cols[idxBaseRate] || '' : '';
+      const clientRateStr = idxClientRate >= 0 ? cols[idxClientRate] || '' : '';
+      const subcontractorRateStr = idxSubcontractorRate >= 0 ? cols[idxSubcontractorRate] || '' : '';
       const currency = cols[idxCurrency] || '';
       const effFromStr = cols[idxEffFrom] || '';
       const effToStr = idxEffTo >= 0 ? cols[idxEffTo] || '' : '';
@@ -350,7 +617,12 @@ export class RatesService {
       if (!serviceCategoryCode) rowErrors.push('service_category_code is required');
       if (!originArea) rowErrors.push('origin_area_code is required');
       if (!destinationArea) rowErrors.push('destination_area_code is required');
-      if (!baseRateStr) rowErrors.push('base_rate is required');
+      if (hasSplitRates) {
+        if (!clientRateStr) rowErrors.push('client_rate is required');
+        if (!subcontractorRateStr) rowErrors.push('subcontractor_rate is required');
+      } else if (!baseRateStr) {
+        rowErrors.push('base_rate is required');
+      }
       if (!currency) rowErrors.push('currency is required');
       if (!effFromStr) rowErrors.push('effective_from is required');
 
@@ -373,9 +645,24 @@ export class RatesService {
         );
       }
 
-      const baseRate = Number(baseRateStr);
-      if (!Number.isFinite(baseRate) || baseRate <= 0) {
-        rowErrors.push('base_rate must be a positive number');
+      let clientRate = 0;
+      let subcontractorRate = 0;
+      if (hasSplitRates) {
+        clientRate = Number(clientRateStr);
+        subcontractorRate = Number(subcontractorRateStr);
+        if (!Number.isFinite(clientRate) || clientRate <= 0) {
+          rowErrors.push('client_rate must be a positive number');
+        }
+        if (!Number.isFinite(subcontractorRate) || subcontractorRate <= 0) {
+          rowErrors.push('subcontractor_rate must be a positive number');
+        }
+      } else {
+        const baseRate = Number(baseRateStr);
+        if (!Number.isFinite(baseRate) || baseRate <= 0) {
+          rowErrors.push('base_rate must be a positive number');
+        } else {
+          clientRate = subcontractorRate = baseRate;
+        }
       }
 
       const effStart = parseDate(effFromStr);
@@ -402,7 +689,8 @@ export class RatesService {
         serviceCategoryCode,
         originArea,
         destinationArea,
-        baseRate,
+        clientRate,
+        subcontractorRate,
         currency,
         effectiveStart: effStart!,
         effectiveEnd: effEnd,
@@ -502,8 +790,8 @@ export class RatesService {
                 destinationArea: row.destinationArea,
                 effectiveStart: row.effectiveStart,
                 effectiveEnd: row.effectiveEnd,
-                billRateAmount: new Prisma.Decimal(row.baseRate),
-                tripPayoutRateVatable: new Prisma.Decimal(row.baseRate),
+                billRateAmount: new Prisma.Decimal(row.clientRate),
+                tripPayoutRateVatable: new Prisma.Decimal(row.subcontractorRate),
               },
             });
             createdIds.push(created.id);
@@ -531,8 +819,8 @@ export class RatesService {
               where: { id: existing.id },
               data: {
                 effectiveEnd: row.effectiveEnd,
-                billRateAmount: new Prisma.Decimal(row.baseRate),
-                tripPayoutRateVatable: new Prisma.Decimal(row.baseRate),
+                billRateAmount: new Prisma.Decimal(row.clientRate),
+                tripPayoutRateVatable: new Prisma.Decimal(row.subcontractorRate),
               },
             });
             updatedIds.push(updated.id);
@@ -553,11 +841,11 @@ export class RatesService {
                 where: { id: existing.id },
                 data: {
                   effectiveEnd: row.effectiveEnd,
-                  billRateAmount: new Prisma.Decimal(row.baseRate),
-                  tripPayoutRateVatable: new Prisma.Decimal(row.baseRate),
-                },
-              });
-              updatedIds.push(updated.id);
+                billRateAmount: new Prisma.Decimal(row.clientRate),
+                tripPayoutRateVatable: new Prisma.Decimal(row.subcontractorRate),
+              },
+            });
+            updatedIds.push(updated.id);
             }
           } else {
             if (overlapping) {
@@ -578,8 +866,8 @@ export class RatesService {
                   destinationArea: row.destinationArea,
                   effectiveStart: row.effectiveStart,
                   effectiveEnd: row.effectiveEnd,
-                  billRateAmount: new Prisma.Decimal(row.baseRate),
-                  tripPayoutRateVatable: new Prisma.Decimal(row.baseRate),
+                  billRateAmount: new Prisma.Decimal(row.clientRate),
+                  tripPayoutRateVatable: new Prisma.Decimal(row.subcontractorRate),
                 },
               });
               createdIds.push(created.id);
