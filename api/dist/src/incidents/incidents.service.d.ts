@@ -12,36 +12,41 @@ export declare class IncidentsService {
         tripId?: string;
         dateFrom?: string;
         dateTo?: string;
-    }): Promise<({
-        trip: {
+        limit?: number;
+        offset?: number;
+    }): Promise<{
+        items: ({
+            trip: {
+                id: string;
+                internalRef: string;
+                runsheetDate: Date;
+            };
+            reporter: {
+                id: string;
+                firstName: string;
+                lastName: string;
+            };
+        } & {
             id: string;
-            internalRef: string;
-            runsheetDate: Date;
-        };
-        reporter: {
-            id: string;
-            firstName: string;
-            lastName: string;
-        };
-    } & {
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        status: import(".prisma/client").$Enums.IncidentStatus;
-        description: string;
-        severity: import(".prisma/client").$Enums.IncidentSeverity;
-        tripId: string;
-        incidentType: import(".prisma/client").$Enums.IncidentType;
-        gpsLat: number | null;
-        gpsLng: number | null;
-        gpsAccuracy: number | null;
-        resolutionNotes: string | null;
-        replacementTripId: string | null;
-        reportedByUserId: string;
-        reportedAt: Date;
-        resolvedByUserId: string | null;
-        resolvedAt: Date | null;
-    })[]>;
+            createdAt: Date;
+            updatedAt: Date;
+            status: import(".prisma/client").$Enums.IncidentStatus;
+            description: string;
+            severity: import(".prisma/client").$Enums.IncidentSeverity;
+            tripId: string;
+            incidentType: import(".prisma/client").$Enums.IncidentType;
+            gpsLat: number | null;
+            gpsLng: number | null;
+            gpsAccuracy: number | null;
+            resolutionNotes: string | null;
+            replacementTripId: string | null;
+            reportedByUserId: string;
+            reportedAt: Date;
+            resolvedByUserId: string | null;
+            resolvedAt: Date | null;
+        })[];
+        totalCount: number;
+    }>;
     create(userId: string, tenantId: string, dto: CreateIncidentDto): Promise<{
         trip: {
             id: string;

@@ -5,6 +5,8 @@ export declare class GetIncidentsQueryDto {
     tripId?: string;
     dateFrom?: string;
     dateTo?: string;
+    limit?: number;
+    offset?: number;
 }
 export declare class CreateIncidentDto {
     tripId: string;

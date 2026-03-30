@@ -1,5 +1,6 @@
-import { IsString, IsOptional, IsDateString, IsEnum, IsInt, Min } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsEnum, IsInt, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { AssignmentStatus, HighLevelTripStatus, PODStatus } from '@prisma/client';
 
 export class GetTripsQueryDto {
@@ -37,6 +38,21 @@ export class GetTripsQueryDto {
   @IsOptional()
   @IsString()
   internalRef?: string;
+
+  @ApiPropertyOptional({ description: 'Page size (default: return all trips if omitted)', maximum: 200 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'Offset for pagination' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }
 
 export class CreateTripDto {

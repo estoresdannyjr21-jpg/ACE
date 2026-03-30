@@ -34,15 +34,20 @@ let IncidentsService = class IncidentsService {
             if (query.dateTo)
                 where.reportedAt.lte = new Date(query.dateTo);
         }
-        return this.prisma.tripIncident.findMany({
+        const totalCount = await this.prisma.tripIncident.count({ where });
+        const take = query.limit != null ? Math.min(Math.max(1, query.limit), 200) : 500;
+        const skip = query.offset ?? 0;
+        const items = await this.prisma.tripIncident.findMany({
             where,
             include: {
                 trip: { select: { id: true, internalRef: true, runsheetDate: true } },
                 reporter: { select: { id: true, firstName: true, lastName: true } },
             },
             orderBy: { reportedAt: 'desc' },
-            take: 500,
+            take,
+            skip,
         });
+        return { items, totalCount };
     }
     async create(userId, tenantId, dto) {
         const trip = await this.prisma.trip.findFirst({

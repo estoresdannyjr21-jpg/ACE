@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { importRatesCsv, type RatesImportResult } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 function downloadCsv(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
@@ -22,12 +23,14 @@ const IMPORT_MODES = [
 ] as const;
 
 export function RatesPage() {
+  const fid = useId();
   const toast = useToast();
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'create' | 'update' | 'upsert'>('upsert');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RatesImportResult | null>(null);
   const [previewRun, setPreviewRun] = useState(false);
+  const [commitOpen, setCommitOpen] = useState(false);
 
   const handleFileChange = (f: File | null) => {
     setFile(f);
@@ -40,7 +43,7 @@ export function RatesPage() {
 
   const handlePreview = async () => {
     if (!file) {
-      alert('Please select a CSV file.');
+      toast.show('Please select a CSV file first.', { variant: 'error' });
       return;
     }
     setLoading(true);
@@ -65,18 +68,18 @@ export function RatesPage() {
     }
   };
 
-  const handleCommit = async () => {
+  const runRatesCommit = async () => {
+    setCommitOpen(false);
     if (!file) {
-      alert('Please select a CSV file.');
+      toast.show('Please select a CSV file first.', { variant: 'error' });
       return;
     }
-    if (!confirm('Apply changes to the database? This will create or update route rates.')) return;
     setLoading(true);
     setResult(null);
     try {
       const res = await importRatesCsv(file, { commit: true, mode });
       setResult(res);
-      toast.show('Rates imported');
+      toast.show('Rates imported', { variant: 'success' });
     } catch (e) {
       setResult({
         mode: 'commit',
@@ -87,6 +90,7 @@ export function RatesPage() {
         updated: 0,
         errors: [{ rowNumber: 0, message: e instanceof Error ? e.message : 'Import failed' }],
       });
+      toast.show(e instanceof Error ? e.message : 'Import failed.', { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -100,8 +104,8 @@ export function RatesPage() {
       </div>
 
       <section className="panel">
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem 1rem', marginBottom: 12 }}>
-          <h3 className="panel-title" style={{ marginBottom: 0 }}>Import route rates (CSV)</h3>
+        <div className="panel-header-inline">
+          <h3 className="panel-title">Import</h3>
           <a
             href="#"
             className="template-download-link"
@@ -113,14 +117,15 @@ export function RatesPage() {
             Download template (CSV)
           </a>
         </div>
-        <p className="page-subtitle" style={{ marginBottom: 16 }}>
-          Required columns: client_code, service_segment, service_category_code, origin_area_code, destination_area_code, base_rate, currency, effective_from. Optional: effective_to. Segments: FM_ONCALL, FM_WETLEASE, MFM_ONCALL. You must run Preview first; Commit is only enabled after a preview.
+        <p className="page-subtitle page-subtitle--spaced">
+          Required columns: client_code, service_segment, service_category_code, origin_area_code, destination_area_code, base_rate, currency, effective_from. Optional: effective_to. Segments: FM_ONCALL, FM_WETLEASE, MFM_ONCALL. Run Preview first; Commit is only enabled after a preview.
         </p>
 
-        <div className="form-grid" style={{ marginBottom: 16, maxWidth: 560 }}>
+        <div className="form-grid form-grid--import">
           <div className="filter-group">
-            <span className="filter-label">Import mode</span>
+            <label className="filter-label" htmlFor={`${fid}-mode`}>Import mode</label>
             <select
+              id={`${fid}-mode`}
               className="filter-select"
               value={mode}
               onChange={(e) => handleModeChange(e.target.value as 'create' | 'update' | 'upsert')}
@@ -132,46 +137,54 @@ export function RatesPage() {
             </select>
           </div>
           <div className="filter-group">
-            <span className="filter-label">CSV file</span>
+            <label className="filter-label" htmlFor={`${fid}-file`}>CSV file <span className="text-required" aria-hidden>*</span></label>
             <input
+              id={`${fid}-file`}
               type="file"
               accept=".csv"
               onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-              style={{ display: 'block', marginTop: 4 }}
+              className="input-file-block"
+              aria-required
             />
             {file && (
-              <span style={{ fontSize: 'var(--font-size-small)', color: 'var(--color-slate)' }}>
+              <span className="text-muted">
                 {file.name}
               </span>
             )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="form-actions-row">
           <button
             type="button"
             className="btn btn-secondary"
             onClick={handlePreview}
             disabled={loading || !file}
           >
-            {loading ? '…' : 'Preview'}
+            {loading ? 'Working…' : 'Preview'}
           </button>
           <button
             type="button"
             className="btn btn-primary"
-            onClick={handleCommit}
+            onClick={() => setCommitOpen(true)}
             disabled={loading || !previewRun}
             title={!previewRun ? 'Run Preview first to enable Commit' : undefined}
           >
-            {loading ? '…' : 'Commit'}
+            {loading ? 'Working…' : 'Commit'}
           </button>
-          {!previewRun && <span style={{ fontSize: 'var(--font-size-small)', color: 'var(--color-slate)' }}>Run Preview first to enable Commit.</span>}
+          {!previewRun && <span className="text-muted">Run Preview first to enable Commit.</span>}
         </div>
+      </section>
 
-        {result && (
-          <div className="import-result-box" style={{ marginTop: 16 }}>
+      <section className="panel">
+        <h3 className="panel-title">Preview & result</h3>
+        <p className="page-subtitle page-subtitle--spaced">
+          Validation counts and row errors appear here after Preview or Commit.
+        </p>
+        {result ? (
+          <div className="import-result-box">
             <strong>Result ({result.mode}, {result.importMode}):</strong>
-            <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+            <ul className="import-result-list">
               <li>Total rows: {result.totalRows}</li>
               <li>Valid rows: {result.validRows}</li>
               {result.mode === 'commit' && (
@@ -183,8 +196,8 @@ export function RatesPage() {
             </ul>
             {result.errors.length > 0 && (
               <>
-                <strong style={{ display: 'block', marginTop: 12 }}>Errors ({result.errors.length}):</strong>
-                <ul style={{ marginTop: 4, paddingLeft: 20, maxHeight: 200, overflow: 'auto' }}>
+                <strong className="import-result-errors-title">Errors ({result.errors.length}):</strong>
+                <ul className="import-result-errors-list">
                   {result.errors.map((err, i) => (
                     <li key={i}>
                       Row {err.rowNumber}: {err.message}
@@ -194,8 +207,22 @@ export function RatesPage() {
               </>
             )}
           </div>
+        ) : (
+          <p className="text-muted">Run Preview to see validation results here.</p>
         )}
       </section>
+
+      <ConfirmDialog
+        open={commitOpen}
+        title="Apply rates to database?"
+        message="This will create or update route rates from your CSV according to the selected import mode. This cannot be undone automatically."
+        confirmLabel="Apply changes"
+        cancelLabel="Cancel"
+        onCancel={() => setCommitOpen(false)}
+        onConfirm={() => {
+          void runRatesCommit();
+        }}
+      />
     </div>
   );
 }

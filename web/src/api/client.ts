@@ -302,13 +302,19 @@ export type IncidentListItem = {
   reporter?: { id: string; firstName: string; lastName: string };
 };
 
-export async function fetchIncidents(params: Record<string, string | undefined> = {}): Promise<IncidentListItem[]> {
+export type PaginatedResult<T> = { items: T[]; totalCount: number };
+
+export async function fetchIncidents(params: Record<string, string | undefined> = {}): Promise<PaginatedResult<IncidentListItem>> {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v != null && v !== '') q.set(k, v); });
   const url = `${API_BASE}/incidents${q.toString() ? `?${q}` : ''}`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Incidents failed: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  if (!data || typeof data !== 'object' || !Array.isArray(data.items)) {
+    throw new Error('Invalid incidents response');
+  }
+  return data as PaginatedResult<IncidentListItem>;
 }
 
 export async function fetchIncidentById(id: string) {
@@ -428,14 +434,35 @@ export async function createVehicle(body: Record<string, unknown>) {
   return res.json();
 }
 
-// Dispatch - Trips
-export async function getTrips(params: Record<string, string | undefined> = {}) {
+// Dispatch - Trips (paginated when `limit` is sent; totalCount is always returned)
+export type TripListItem = {
+  id: string;
+  internalRef: string;
+  runsheetDate: string;
+  callTime: string;
+  assignmentStatus: string;
+  highLevelTripStatus: string;
+  podStatus: string;
+  originArea: string;
+  destinationArea: string;
+  vehicleType: string;
+  assignedDriver?: { id: string; firstName: string; lastName: string };
+  assignedVehicle?: { id: string; plateNumber: string; vehicleType: string };
+  serviceCategory?: { id: string; name: string; code: string };
+  clientAccount?: { id: string; name: string; code: string };
+};
+
+export async function getTrips(params: Record<string, string | undefined> = {}): Promise<PaginatedResult<TripListItem>> {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v != null && v !== '') q.set(k, v); });
   const url = `${API_BASE}/dispatch/trips${q.toString() ? `?${q}` : ''}`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Trips failed: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  if (!data || typeof data !== 'object' || !Array.isArray(data.items)) {
+    throw new Error('Invalid trips response');
+  }
+  return data as PaginatedResult<TripListItem>;
 }
 
 export async function createTrip(body: Record<string, unknown>) {

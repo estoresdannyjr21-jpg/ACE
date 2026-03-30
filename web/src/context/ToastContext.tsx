@@ -1,7 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
+export type ToastVariant = 'default' | 'success' | 'error';
+
+type ToastPayload = { message: string; variant: ToastVariant };
+
 type ToastContextValue = {
-  show: (message: string) => void;
+  /** Phase 4.1 / 4.2 — auto-dismiss toast; use variant `success` or `error` for emphasis */
+  show: (message: string, options?: { variant?: ToastVariant }) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -9,33 +14,33 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 const TOAST_DURATION_MS = 3500;
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [message, setMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastPayload | null>(null);
 
-  const show = useCallback((msg: string) => {
-    setMessage(msg);
+  const show = useCallback((msg: string, options?: { variant?: ToastVariant }) => {
+    setToast({ message: msg, variant: options?.variant ?? 'default' });
   }, []);
 
   return (
     <ToastContext.Provider value={{ show }}>
       {children}
-      <ToastContainer message={message} onDismiss={() => setMessage(null)} duration={TOAST_DURATION_MS} />
+      <ToastContainer toast={toast} onDismiss={() => setToast(null)} duration={TOAST_DURATION_MS} />
     </ToastContext.Provider>
   );
 }
 
 function ToastContainer({
-  message,
+  toast,
   onDismiss,
   duration,
 }: {
-  message: string | null;
+  toast: ToastPayload | null;
   onDismiss: () => void;
   duration: number;
 }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (!message) {
+    if (!toast) {
       setVisible(false);
       return;
     }
@@ -45,17 +50,20 @@ function ToastContainer({
       setTimeout(onDismiss, 200);
     }, duration);
     return () => clearTimeout(t);
-  }, [message, duration, onDismiss]);
+  }, [toast, duration, onDismiss]);
 
-  if (!message) return null;
+  if (!toast) return null;
+
+  const variantClass =
+    toast.variant === 'success' ? 'app-toast--success' : toast.variant === 'error' ? 'app-toast--error' : '';
 
   return (
     <div
-      className={`app-toast ${visible ? 'app-toast-visible' : ''}`}
+      className={`app-toast ${variantClass} ${visible ? 'app-toast-visible' : ''}`}
       role="status"
-      aria-live="polite"
+      aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
     >
-      {message}
+      {toast.message}
     </div>
   );
 }

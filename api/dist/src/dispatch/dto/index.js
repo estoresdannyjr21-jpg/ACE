@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.RejectPODDto = exports.VerifyPODDto = exports.CreateTripDto = exports.GetTripsQueryDto = void 0;
 const class_validator_1 = require("class-validator");
 const swagger_1 = require("@nestjs/swagger");
+const class_transformer_1 = require("class-transformer");
 const client_1 = require("@prisma/client");
 class GetTripsQueryDto {
 }
@@ -58,6 +59,23 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], GetTripsQueryDto.prototype, "internalRef", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Page size (default: return all trips if omitted)', maximum: 200 }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(200),
+    __metadata("design:type", Number)
+], GetTripsQueryDto.prototype, "limit", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Offset for pagination' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], GetTripsQueryDto.prototype, "offset", void 0);
 class CreateTripDto {
 }
 exports.CreateTripDto = CreateTripDto;

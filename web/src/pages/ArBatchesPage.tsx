@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useId } from 'react';
 import {
   getArBatches,
   getArBatchById,
@@ -13,6 +13,10 @@ import {
   type PaymentListImportResult,
 } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ArBatchStatusChip } from '../components/StatusChip';
+import { TableEmptyState } from '../components/TableEmptyState';
+import { readSessionJson, writeSessionJson, clearSessionKey } from '../lib/sessionFilters';
 
 const SERVICE_SEGMENTS = [
   { value: 'FM_ONCALL', label: 'FM Oncall' },
@@ -70,7 +74,10 @@ type ListFilters = {
   cutoffTo?: string;
 };
 
+const AR_BATCH_FILTERS_KEY = 'ace.filters.arBatches.v1';
+
 export function ArBatchesPage() {
+  const listFid = useId();
   const toast = useToast();
   const [batches, setBatches] = useState<ArBatchListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,8 +85,16 @@ export function ArBatchesPage() {
   const [lookups, setLookups] = useState<{
     clients: Array<{ id: string; name: string; code: string }>;
   } | null>(null);
-  const [filters, setFilters] = useState<ListFilters>({});
-  const [applied, setApplied] = useState<ListFilters>({});
+  const [filters, setFilters] = useState<ListFilters>(() => {
+    const p = readSessionJson<{ applied?: ListFilters; filters?: ListFilters }>(AR_BATCH_FILTERS_KEY);
+    const a = p?.applied ?? p?.filters;
+    return a ? { ...a } : {};
+  });
+  const [applied, setApplied] = useState<ListFilters>(() => {
+    const p = readSessionJson<{ applied?: ListFilters; filters?: ListFilters }>(AR_BATCH_FILTERS_KEY);
+    const a = p?.applied ?? p?.filters;
+    return a ? { ...a } : {};
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ArBatchDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -104,6 +119,9 @@ export function ArBatchesPage() {
   const [plLoading, setPlLoading] = useState(false);
   const [plResult, setPlResult] = useState<PaymentListImportResult | null>(null);
   const [plPreviewRun, setPlPreviewRun] = useState(false);
+  const [rbCommitOpen, setRbCommitOpen] = useState(false);
+  const [plCommitOpen, setPlCommitOpen] = useState(false);
+  const [depositOpen, setDepositOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +151,10 @@ export function ArBatchesPage() {
   }, [applied, loadBatches]);
 
   useEffect(() => {
+    writeSessionJson(AR_BATCH_FILTERS_KEY, { applied });
+  }, [applied]);
+
+  useEffect(() => {
     if (!selectedId) {
       setDetail(null);
       return;
@@ -148,6 +170,7 @@ export function ArBatchesPage() {
   const onReset = () => {
     setFilters({});
     setApplied({});
+    clearSessionKey(AR_BATCH_FILTERS_KEY);
   };
 
   const handleAttachInvoice = async () => {
@@ -162,22 +185,25 @@ export function ArBatchesPage() {
       setInvoiceNumber('');
       setInvoiceDate('');
       loadBatches(applied);
+      toast.show('Invoice attached.', { variant: 'success' });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Attach invoice failed');
+      toast.show(e instanceof Error ? e.message : 'Attach invoice failed', { variant: 'error' });
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleMarkDeposited = async () => {
+  const runMarkDeposited = async () => {
+    setDepositOpen(false);
     if (!selectedId) return;
     setActionLoading(true);
     try {
       const updated = await markArBatchDeposited(selectedId);
       setDetail(updated);
       loadBatches(applied);
+      toast.show('Batch marked as deposited.', { variant: 'success' });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Mark deposited failed');
+      toast.show(e instanceof Error ? e.message : 'Mark deposited failed', { variant: 'error' });
     } finally {
       setActionLoading(false);
     }
@@ -185,7 +211,7 @@ export function ArBatchesPage() {
 
   const handleReverseBillingPreview = async () => {
     if (!rbFile || !rbClientCode || !rbSegment || !rbCutoffStart || !rbCutoffEnd) {
-      alert('Please select file, client, segment, and cutoff dates.');
+      toast.show('Please select file, client, segment, and cutoff dates.', { variant: 'error' });
       return;
     }
     setRbLoading(true);
@@ -208,12 +234,17 @@ export function ArBatchesPage() {
     }
   };
 
-  const handleReverseBillingCommit = async () => {
+  const requestReverseBillingCommit = () => {
     if (!rbFile || !rbClientCode || !rbSegment || !rbCutoffStart || !rbCutoffEnd) {
-      alert('Please select file, client, segment, and cutoff dates.');
+      toast.show('Please select file, client, segment, and cutoff dates.', { variant: 'error' });
       return;
     }
-    if (!confirm('Apply changes to the database?')) return;
+    setRbCommitOpen(true);
+  };
+
+  const runReverseBillingCommit = async () => {
+    setRbCommitOpen(false);
+    if (!rbFile || !rbClientCode || !rbSegment || !rbCutoffStart || !rbCutoffEnd) return;
     setRbLoading(true);
     setRbResult(null);
     try {
@@ -227,9 +258,11 @@ export function ArBatchesPage() {
       setRbResult(result);
       loadBatches(applied);
       if (selectedId) getArBatchById(selectedId).then(setDetail).catch(() => {});
-      toast.show('Reverse billing imported');
+      toast.show('Reverse billing imported.', { variant: 'success' });
     } catch (e) {
-      setRbResult({ mode: 'commit', errors: [{ message: e instanceof Error ? e.message : 'Import failed' }] });
+      const msg = e instanceof Error ? e.message : 'Import failed';
+      setRbResult({ mode: 'commit', errors: [{ message: msg }] });
+      toast.show(msg, { variant: 'error' });
     } finally {
       setRbLoading(false);
     }
@@ -237,7 +270,7 @@ export function ArBatchesPage() {
 
   const handlePaymentListPreview = async () => {
     if (!plFile || !plClientCode || !plReceivedDate) {
-      alert('Please select file, client, and payment list received date.');
+      toast.show('Please select file, client, and payment list received date.', { variant: 'error' });
       return;
     }
     setPlLoading(true);
@@ -258,12 +291,17 @@ export function ArBatchesPage() {
     }
   };
 
-  const handlePaymentListCommit = async () => {
+  const requestPaymentListCommit = () => {
     if (!plFile || !plClientCode || !plReceivedDate) {
-      alert('Please select file, client, and payment list received date.');
+      toast.show('Please select file, client, and payment list received date.', { variant: 'error' });
       return;
     }
-    if (!confirm('Apply payment list updates?')) return;
+    setPlCommitOpen(true);
+  };
+
+  const runPaymentListCommit = async () => {
+    setPlCommitOpen(false);
+    if (!plFile || !plClientCode || !plReceivedDate) return;
     setPlLoading(true);
     setPlResult(null);
     try {
@@ -275,9 +313,11 @@ export function ArBatchesPage() {
       setPlResult(result);
       loadBatches(applied);
       if (selectedId) getArBatchById(selectedId).then(setDetail).catch(() => {});
-      toast.show('Payment list imported');
+      toast.show('Payment list imported.', { variant: 'success' });
     } catch (e) {
-      setPlResult({ mode: 'commit', errors: [{ message: e instanceof Error ? e.message : 'Import failed' }] });
+      const msg = e instanceof Error ? e.message : 'Import failed';
+      setPlResult({ mode: 'commit', errors: [{ message: msg }] });
+      toast.show(msg, { variant: 'error' });
     } finally {
       setPlLoading(false);
     }
@@ -294,10 +334,14 @@ export function ArBatchesPage() {
 
       <section className="panel">
         <h3 className="panel-title">Filters</h3>
+        <p className="page-subtitle page-subtitle--spaced">
+          Scope batches by client, segment, status, and cutoff dates, then Apply. Clear all resets every filter.
+        </p>
         <div className="filters-row">
           <div className="filter-group">
-            <span className="filter-label">Client</span>
+            <label className="filter-label" htmlFor={`${listFid}-client`}>Client</label>
             <select
+              id={`${listFid}-client`}
               className="filter-select"
               value={filters.clientAccountId ?? ''}
               onChange={(e) => setFilters((f) => ({ ...f, clientAccountId: e.target.value || undefined }))}
@@ -309,8 +353,9 @@ export function ArBatchesPage() {
             </select>
           </div>
           <div className="filter-group">
-            <span className="filter-label">Segment</span>
+            <label className="filter-label" htmlFor={`${listFid}-segment`}>Segment</label>
             <select
+              id={`${listFid}-segment`}
               className="filter-select"
               value={filters.serviceSegment ?? ''}
               onChange={(e) => setFilters((f) => ({ ...f, serviceSegment: e.target.value || undefined }))}
@@ -322,8 +367,9 @@ export function ArBatchesPage() {
             </select>
           </div>
           <div className="filter-group">
-            <span className="filter-label">Status</span>
+            <label className="filter-label" htmlFor={`${listFid}-status`}>Status</label>
             <select
+              id={`${listFid}-status`}
               className="filter-select"
               value={filters.status ?? ''}
               onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value || undefined }))}
@@ -335,8 +381,9 @@ export function ArBatchesPage() {
             </select>
           </div>
           <div className="filter-group">
-            <span className="filter-label">Cutoff from</span>
+            <label className="filter-label" htmlFor={`${listFid}-cutoff-from`}>Cutoff from</label>
             <input
+              id={`${listFid}-cutoff-from`}
               type="date"
               className="filter-input"
               value={filters.cutoffFrom ?? ''}
@@ -344,77 +391,101 @@ export function ArBatchesPage() {
             />
           </div>
           <div className="filter-group">
-            <span className="filter-label">Cutoff to</span>
+            <label className="filter-label" htmlFor={`${listFid}-cutoff-to`}>Cutoff to</label>
             <input
+              id={`${listFid}-cutoff-to`}
               type="date"
               className="filter-input"
               value={filters.cutoffTo ?? ''}
               onChange={(e) => setFilters((f) => ({ ...f, cutoffTo: e.target.value || undefined }))}
             />
           </div>
-          <button type="button" onClick={onApply} className="btn btn-primary">Apply</button>
-          <button type="button" onClick={onReset} className="btn btn-secondary">Reset</button>
+          <div className="filters-actions">
+            <button type="button" onClick={onApply} className="btn btn-primary">Apply</button>
+            <button type="button" onClick={onReset} className="btn btn-secondary">Clear all</button>
+          </div>
         </div>
       </section>
 
-      {error && <div className="error-msg">{error}</div>}
-      {loading && !batches.length && <p className="loading-msg">Loading batches…</p>}
-
-      <section className="panel" style={{ marginBottom: '1.5rem' }}>
+      <section className="panel">
         <h3 className="panel-title">Batches</h3>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Segment</th>
-                <th>Cutoff start</th>
-                <th>Cutoff end</th>
-                <th>Status</th>
-                <th>Trips</th>
-                <th>Unmatched</th>
-                <th>Invoice #</th>
-                <th>Invoice date</th>
-                <th>Deposited</th>
-              </tr>
-            </thead>
-            <tbody>
-              {batches.length === 0 ? (
-                <tr><td colSpan={10} className="table-empty">No batches match filters.</td></tr>
-              ) : (
-                batches.map((b) => (
+        <p className="page-subtitle page-subtitle--spaced">
+          Select a row to view trips and take actions. Adjust filters above, then Apply.
+        </p>
+        {error && <div className="error-msg">{error}</div>}
+        {loading && !batches.length && (
+          <p className="loading-msg loading-msg--with-spinner" role="status">
+            <span className="loading-spinner" aria-hidden />
+            Loading batches…
+          </p>
+        )}
+        {!loading && !error && batches.length === 0 ? (
+          <TableEmptyState
+            message="No AR batches match your filters."
+            hint="Try a wider cutoff range or different status. New batches often come from reverse billing import below."
+          />
+        ) : batches.length > 0 ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Segment</th>
+                  <th>Cutoff start</th>
+                  <th>Cutoff end</th>
+                  <th>Status</th>
+                  <th className="table-cell-num">Trips</th>
+                  <th className="table-cell-num">Unmatched</th>
+                  <th>Invoice #</th>
+                  <th>Invoice date</th>
+                  <th>Deposited</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((b) => (
                   <tr
                     key={b.id}
-                    className={selectedId === b.id ? 'selected' : ''}
+                    className={`table-row--interactive${selectedId === b.id ? ' selected' : ''}`}
+                    tabIndex={0}
                     onClick={() => setSelectedId(b.id)}
-                    style={{ cursor: 'pointer' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedId(b.id);
+                      }
+                    }}
                   >
                     <td>{b.clientAccount?.name ?? b.clientAccountId}</td>
                     <td>{b.serviceSegment}</td>
                     <td>{formatDate(b.cutoffStartDate)}</td>
                     <td>{formatDate(b.cutoffEndDate)}</td>
-                    <td><span className={`chip chip-${b.status === 'DEPOSITED' ? 'success' : b.status === 'REVERSE_BILLING_RECEIVED' ? 'pending' : 'neutral'}`}>{b.status.replace(/_/g, ' ')}</span></td>
+                    <td><ArBatchStatusChip status={b.status} /></td>
                     <td>{b._count?.trips ?? 0}</td>
                     <td>{b._count?.unmatchedLines ?? 0}</td>
                     <td>{b.invoiceNumber ?? '—'}</td>
                     <td>{formatDate(b.invoiceDate)}</td>
                     <td>{formatDate(b.depositedAt)}</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </section>
 
       {selectedId && (
-        <section className="panel" style={{ marginBottom: '1.5rem' }}>
+        <section className="panel">
           <h3 className="panel-title">Batch detail {selectedBatch ? `— ${selectedBatch.clientAccount?.name} ${selectedBatch.serviceSegment}` : ''}</h3>
-          {detailLoading && <p className="loading-msg">Loading…</p>}
+          {detailLoading && (
+            <p className="loading-msg loading-msg--with-spinner" role="status">
+              <span className="loading-spinner" aria-hidden />
+              Loading batch…
+            </p>
+          )}
           {!detailLoading && detail && (
             <>
-              <div className="form-block" style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
-                <div><strong>Status:</strong> <span className={`chip chip-${detail.status === 'DEPOSITED' ? 'success' : 'neutral'}`}>{detail.status.replace(/_/g, ' ')}</span></div>
+              <div className="form-block batch-detail-row">
+                <div><strong>Status:</strong> <ArBatchStatusChip status={detail.status} /></div>
                 <div>Reverse billing received: {formatDate(detail.reverseBillingReceivedAt)}</div>
                 {detail.invoiceNumber && <div>Invoice: {detail.invoiceNumber} ({formatDate(detail.invoiceDate)})</div>}
                 {detail.paymentListReceivedAt && <div>Payment list: {formatDate(detail.paymentListReceivedAt)}</div>}
@@ -423,9 +494,9 @@ export function ArBatchesPage() {
               </div>
 
               {detail.status === 'REVERSE_BILLING_RECEIVED' && (
-                <div className="form-block" style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--color-cloud)', borderRadius: 12 }}>
-                  <h4 style={{ marginBottom: 8 }}>Attach invoice</h4>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+                <div className="attach-invoice-card">
+                  <h4 className="subsection-heading">Attach invoice</h4>
+                  <div className="attach-invoice-fields">
                     <div className="filter-group">
                       <span className="filter-label">Invoice number</span>
                       <input
@@ -454,14 +525,14 @@ export function ArBatchesPage() {
               )}
 
               {detail.status === 'PAYMENT_LIST_RECEIVED' && (
-                <div style={{ marginBottom: '1rem' }}>
-                  <button type="button" className="btn btn-primary" onClick={handleMarkDeposited} disabled={actionLoading}>
+                <div className="detail-toolbar">
+                  <button type="button" className="btn btn-primary" onClick={() => setDepositOpen(true)} disabled={actionLoading}>
                     {actionLoading ? 'Saving…' : 'Mark as deposited'}
                   </button>
                 </div>
               )}
 
-              <h4 style={{ marginTop: 16, marginBottom: 8 }}>Trips in batch ({detail.trips?.length ?? 0})</h4>
+              <h4 className="subsection-heading">Trips in batch ({detail.trips?.length ?? 0})</h4>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -474,7 +545,11 @@ export function ArBatchesPage() {
                   </thead>
                   <tbody>
                     {(!detail.trips || detail.trips.length === 0) ? (
-                      <tr><td colSpan={4} className="table-empty">No trips</td></tr>
+                      <tr>
+                        <td colSpan={4} style={{ padding: 0, border: 'none' }}>
+                          <TableEmptyState message="No trips linked to this batch yet." />
+                        </td>
+                      </tr>
                     ) : (
                       detail.trips.map(({ trip }) => (
                         <tr key={trip.id}>
@@ -489,7 +564,7 @@ export function ArBatchesPage() {
                 </table>
               </div>
 
-              <h4 style={{ marginTop: 16, marginBottom: 8 }}>Client-listed, no record ({detail.unmatchedLines?.length ?? 0})</h4>
+              <h4 className="subsection-heading">Client-listed, no record ({detail.unmatchedLines?.length ?? 0})</h4>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -504,7 +579,11 @@ export function ArBatchesPage() {
                   </thead>
                   <tbody>
                     {(!detail.unmatchedLines || detail.unmatchedLines.length === 0) ? (
-                      <tr><td colSpan={6} className="table-empty">None</td></tr>
+                      <tr>
+                        <td colSpan={6} style={{ padding: 0, border: 'none' }}>
+                          <TableEmptyState message="No unmatched client lines for this batch." hint="Lines appear when the client list includes refs we could not match to trips." />
+                        </td>
+                      </tr>
                     ) : (
                       detail.unmatchedLines.map((u) => (
                         <tr key={u.id}>
@@ -512,7 +591,7 @@ export function ArBatchesPage() {
                           <td>{u.ourInternalRef ?? '—'}</td>
                           <td>{u.serviceCategoryCode ?? '—'}</td>
                           <td>{formatDate(u.runsheetDate)}</td>
-                          <td>{formatAmount(u.amountClient)}</td>
+                          <td className="table-cell-num">{formatAmount(u.amountClient)}</td>
                           <td>{u.notes ?? '—'}</td>
                         </tr>
                       ))
@@ -525,9 +604,9 @@ export function ArBatchesPage() {
         </section>
       )}
 
-      <section className="panel" style={{ marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem 1rem', marginBottom: 12 }}>
-          <h3 className="panel-title" style={{ marginBottom: 0 }}>Import reverse billing CSV</h3>
+      <section className="panel">
+        <div className="panel-header-inline">
+          <h3 className="panel-title">Reverse billing — import</h3>
           <a
             href="#"
             className="template-download-link"
@@ -536,10 +615,10 @@ export function ArBatchesPage() {
             Download template (CSV)
           </a>
         </div>
-        <p className="page-subtitle" style={{ marginBottom: 12 }}>
-          Columns: client_trip_ref (required), our_internal_ref, service_category_code, runsheet_date, amount_client. You must run Preview first; Commit is only enabled after a preview.
+        <p className="page-subtitle page-subtitle--spaced">
+          Columns: client_trip_ref (required), our_internal_ref, service_category_code, runsheet_date, amount_client. Run Preview first; Commit is only enabled after a preview.
         </p>
-        <div className="form-grid" style={{ marginBottom: 12, maxWidth: 720 }}>
+        <div className="form-grid form-grid--import-wide">
           <div className="filter-group">
             <span className="filter-label">Client code</span>
             <select
@@ -576,21 +655,28 @@ export function ArBatchesPage() {
               type="file"
               accept=".csv"
               onChange={(e) => { setRbFile(e.target.files?.[0] ?? null); setRbPreviewRun(false); }}
-              style={{ display: 'block', marginTop: 4 }}
+              className="input-file-block"
             />
-            {rbFile && <span style={{ fontSize: 'var(--font-size-small)', color: 'var(--color-slate)' }}>{rbFile.name}</span>}
+            {rbFile && <span className="text-muted">{rbFile.name}</span>}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="form-actions-row">
           <button type="button" className="btn btn-secondary" onClick={handleReverseBillingPreview} disabled={rbLoading || !rbFile || !rbClientCode || !rbCutoffStart || !rbCutoffEnd}>
             {rbLoading ? '…' : 'Preview'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={handleReverseBillingCommit} disabled={rbLoading || !rbPreviewRun} title={!rbPreviewRun ? 'Run Preview first to enable Commit' : undefined}>
+          <button type="button" className="btn btn-primary" onClick={requestReverseBillingCommit} disabled={rbLoading || !rbPreviewRun} title={!rbPreviewRun ? 'Run Preview first to enable Commit' : undefined}>
             {rbLoading ? '…' : 'Commit'}
           </button>
-          {!rbPreviewRun && <span style={{ fontSize: 'var(--font-size-small)', color: 'var(--color-slate)' }}>Run Preview first to enable Commit.</span>}
+          {!rbPreviewRun && <span className="text-muted">Run Preview first to enable Commit.</span>}
         </div>
-        {rbResult && (
+      </section>
+
+      <section className="panel">
+        <h3 className="panel-title">Reverse billing — preview & result</h3>
+        <p className="page-subtitle page-subtitle--spaced">
+          Match counts and errors appear here after Preview or Commit.
+        </p>
+        {rbResult ? (
           <div className="import-result-box">
             <strong>Result ({rbResult.mode}):</strong>
             {rbResult.errors?.length ? (
@@ -603,12 +689,14 @@ export function ArBatchesPage() {
               </ul>
             )}
           </div>
+        ) : (
+          <p className="text-muted">Run Preview to see validation results here.</p>
         )}
       </section>
 
       <section className="panel">
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem 1rem', marginBottom: 12 }}>
-          <h3 className="panel-title" style={{ marginBottom: 0 }}>Import payment list CSV</h3>
+        <div className="panel-header-inline">
+          <h3 className="panel-title">Payment list — import</h3>
           <a
             href="#"
             className="template-download-link"
@@ -617,10 +705,10 @@ export function ArBatchesPage() {
             Download template (CSV)
           </a>
         </div>
-        <p className="page-subtitle" style={{ marginBottom: 12 }}>
-          Columns: invoice_number (required), amount_paid. You must run Preview first; Commit is only enabled after a preview.
+        <p className="page-subtitle page-subtitle--spaced">
+          Columns: invoice_number (required), amount_paid. Run Preview first; Commit is only enabled after a preview.
         </p>
-        <div className="form-grid" style={{ marginBottom: 12, maxWidth: 720 }}>
+        <div className="form-grid form-grid--import-wide">
           <div className="filter-group">
             <span className="filter-label">Client code</span>
             <select
@@ -641,20 +729,27 @@ export function ArBatchesPage() {
           </div>
           <div className="filter-group">
             <span className="filter-label">CSV file</span>
-            <input type="file" accept=".csv" onChange={(e) => { setPlFile(e.target.files?.[0] ?? null); setPlPreviewRun(false); }} style={{ display: 'block', marginTop: 4 }} />
-            {plFile && <span style={{ fontSize: 'var(--font-size-small)', color: 'var(--color-slate)' }}>{plFile.name}</span>}
+            <input type="file" accept=".csv" onChange={(e) => { setPlFile(e.target.files?.[0] ?? null); setPlPreviewRun(false); }} className="input-file-block" />
+            {plFile && <span className="text-muted">{plFile.name}</span>}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="form-actions-row">
           <button type="button" className="btn btn-secondary" onClick={handlePaymentListPreview} disabled={plLoading || !plFile || !plClientCode || !plReceivedDate}>
             {plLoading ? '…' : 'Preview'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={handlePaymentListCommit} disabled={plLoading || !plPreviewRun} title={!plPreviewRun ? 'Run Preview first to enable Commit' : undefined}>
+          <button type="button" className="btn btn-primary" onClick={requestPaymentListCommit} disabled={plLoading || !plPreviewRun} title={!plPreviewRun ? 'Run Preview first to enable Commit' : undefined}>
             {plLoading ? '…' : 'Commit'}
           </button>
-          {!plPreviewRun && <span style={{ fontSize: 'var(--font-size-small)', color: 'var(--color-slate)' }}>Run Preview first to enable Commit.</span>}
+          {!plPreviewRun && <span className="text-muted">Run Preview first to enable Commit.</span>}
         </div>
-        {plResult && (
+      </section>
+
+      <section className="panel">
+        <h3 className="panel-title">Payment list — preview & result</h3>
+        <p className="page-subtitle page-subtitle--spaced">
+          Update counts and not-found invoices appear here after Preview or Commit.
+        </p>
+        {plResult ? (
           <div className="import-result-box">
             <strong>Result ({plResult.mode}):</strong>
             {plResult.errors?.length ? (
@@ -666,8 +761,44 @@ export function ArBatchesPage() {
               </ul>
             )}
           </div>
+        ) : (
+          <p className="text-muted">Run Preview to see validation results here.</p>
         )}
       </section>
+
+      <ConfirmDialog
+        open={rbCommitOpen}
+        title="Apply reverse billing to the database?"
+        message="This will create or update AR batch data from your CSV for the selected client, segment, and cutoff. This cannot be undone automatically."
+        confirmLabel="Apply changes"
+        cancelLabel="Cancel"
+        onCancel={() => setRbCommitOpen(false)}
+        onConfirm={() => {
+          void runReverseBillingCommit();
+        }}
+      />
+      <ConfirmDialog
+        open={plCommitOpen}
+        title="Apply payment list updates?"
+        message="This will update invoice payment amounts from your CSV for the selected client and received date."
+        confirmLabel="Apply updates"
+        cancelLabel="Cancel"
+        onCancel={() => setPlCommitOpen(false)}
+        onConfirm={() => {
+          void runPaymentListCommit();
+        }}
+      />
+      <ConfirmDialog
+        open={depositOpen}
+        title="Mark batch as deposited?"
+        message="This updates the batch status to deposited. Continue only if the payment has been received and recorded."
+        confirmLabel="Mark as deposited"
+        cancelLabel="Cancel"
+        onCancel={() => setDepositOpen(false)}
+        onConfirm={() => {
+          void runMarkDeposited();
+        }}
+      />
     </div>
   );
 }

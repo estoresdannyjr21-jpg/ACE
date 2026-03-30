@@ -7,6 +7,8 @@ export declare class GetTripsQueryDto {
     podStatus?: PODStatus;
     clientAccountId?: string;
     internalRef?: string;
+    limit?: number;
+    offset?: number;
 }
 export declare class CreateTripDto {
     clientAccountId: string;

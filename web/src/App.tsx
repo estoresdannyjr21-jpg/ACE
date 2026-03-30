@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { FinanceDashboard } from './pages/FinanceDashboard';
 import { ArBatchesPage } from './pages/ArBatchesPage';
 import { OperationsDashboard } from './pages/OperationsDashboard';
@@ -47,6 +47,7 @@ type RouteId = keyof typeof MODULE_TITLES;
 const LOGO_PATH = '/logo.png';
 
 function LoginForm({ onLoggedIn }: { onLoggedIn: () => void }) {
+  const loginFid = useId();
   const [email, setEmail] = useState('admin@acetruckers.com');
   const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);
@@ -99,39 +100,54 @@ function LoginForm({ onLoggedIn }: { onLoggedIn: () => void }) {
           )}
         </div>
         <form onSubmit={handleSubmit} className="login-form">
-          <div className="login-field">
-            <span className="login-input-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-            </span>
-            <input
-              type="email"
-              className="login-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              required
-              autoComplete="email"
-            />
+          <div className="login-field-wrap">
+            <label className="login-field-label" htmlFor={`${loginFid}-email`}>
+              Email <span className="text-required" aria-hidden>*</span>
+            </label>
+            <div className="login-field">
+              <span className="login-input-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </span>
+              <input
+                id={`${loginFid}-email`}
+                type="email"
+                className="login-input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                required
+                autoComplete="email"
+                aria-invalid={!!error}
+                aria-describedby={error ? `${loginFid}-login-err` : undefined}
+              />
+            </div>
           </div>
-          <div className="login-field">
-            <span className="login-input-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-            </span>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              className="login-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              required
-              autoComplete="current-password"
-            />
+          <div className="login-field-wrap">
+            <label className="login-field-label" htmlFor={`${loginFid}-password`}>
+              Password <span className="text-required" aria-hidden>*</span>
+            </label>
+            <div className="login-field">
+              <span className="login-input-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </span>
+              <input
+                id={`${loginFid}-password`}
+                type={showPassword ? 'text' : 'password'}
+                className="login-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                required
+                autoComplete="current-password"
+                aria-invalid={!!error}
+                aria-describedby={error ? `${loginFid}-login-err` : undefined}
+              />
             <button
               type="button"
               className="login-password-toggle"
@@ -151,8 +167,9 @@ function LoginForm({ onLoggedIn }: { onLoggedIn: () => void }) {
                 </svg>
               )}
             </button>
+            </div>
           </div>
-          {error && <div className="login-error">{error}</div>}
+          {error && <div id={`${loginFid}-login-err`} className="login-error" role="alert">{error}</div>}
           <button type="submit" disabled={loading} className="login-btn">
             {loading ? 'Signing in…' : 'Login'}
           </button>
@@ -171,7 +188,9 @@ function App() {
   const [route, setRoute] = useState<RouteId>('dashboard');
   const [hasToken, setHasToken] = useState<boolean | null>(null);
   const [logoError, setLogoError] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
@@ -198,6 +217,15 @@ function App() {
   useEffect(() => {
     setBreadcrumbSub(null);
   }, [route]);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = () => {
+      if (mq.matches) setSidebarCollapsed(true);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -237,7 +265,6 @@ function App() {
   useEffect(() => {
     if (searchQuery.trim().length < 2) {
       setSearchResults(null);
-      setSearchOpen(false);
       return;
     }
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -320,7 +347,16 @@ function App() {
     setUserMenuOpen(false);
   };
 
-  if (hasToken === null) return <p className="loading-msg">Loading…</p>;
+  if (hasToken === null) {
+    return (
+      <div className="app-boot-loading">
+        <p className="loading-msg loading-msg--with-spinner" role="status">
+          <span className="loading-spinner" aria-hidden />
+          Loading…
+        </p>
+      </div>
+    );
+  }
   if (!hasToken) return <LoginForm onLoggedIn={handleLoggedIn} />;
 
   const moduleTitle = MODULE_TITLES[route] ?? 'Ace Truckers ERP';
@@ -351,22 +387,42 @@ function App() {
             )}
           </nav>
         </div>
-        <div className="app-topbar-center" ref={searchContainerRef} style={{ position: 'relative' }}>
-          <input
-            type="search"
-            className="app-search"
-            placeholder="Search trip ref, driver, operator…"
-            aria-label="Global search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => searchResults && setSearchOpen(true)}
-          />
+        <div className="app-topbar-center" ref={searchContainerRef}>
+          <div className="global-search-field">
+            <p id="global-search-desc" className="sr-only">
+              Search trips by reference, drivers and operators by name. Enter at least two characters to run a search.
+            </p>
+            <div className="global-search-wrap">
+              <span className="global-search-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+              </span>
+              <input
+                type="search"
+                className="app-search"
+                placeholder="Search trips, drivers, operators…"
+                aria-label="Global search"
+                aria-describedby="global-search-desc"
+                autoComplete="off"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setSearchOpen(true)}
+              />
+            </div>
           {searchOpen && (
-            <div className="global-search-dropdown">
-              {searchLoading ? (
-                <div className="global-search-dropdown-item">Searching…</div>
+            <div className="global-search-dropdown" role="region" aria-label="Search results">
+              {searchQuery.trim().length < 2 ? (
+                <p className="global-search-dropdown-hint">
+                  Type at least 2 characters to search trips, drivers, and operators.
+                </p>
+              ) : searchLoading ? (
+                <div className="global-search-dropdown-item" role="status">Searching…</div>
               ) : !hasAnyResults ? (
-                <div className="global-search-dropdown-item">No results</div>
+                <div className="global-search-dropdown-item" role="status">
+                  No results for &ldquo;{searchQuery.trim()}&rdquo;
+                </div>
               ) : (
                 <>
                   {searchResults!.trips.length > 0 && (
@@ -403,6 +459,7 @@ function App() {
               )}
             </div>
           )}
+          </div>
         </div>
         <div className="app-topbar-right">
           <button
@@ -491,7 +548,7 @@ function App() {
             </button>
             {userMenuOpen && (
               <>
-                <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setUserMenuOpen(false)} />
+                <div role="presentation" className="app-click-away-layer" onClick={() => setUserMenuOpen(false)} />
                 <div className="app-user-dropdown">
                   <div className="app-user-dropdown-row">
                     <span className="app-user-dropdown-label">Username:</span>
@@ -541,55 +598,55 @@ function App() {
           </button>
         </div>
         <nav className="app-sidebar-nav" aria-label="Main">
-          <button type="button" className={`app-sidebar-item ${route === 'dashboard' ? 'active' : ''}`} onClick={() => setRoute('dashboard')}>
+          <button type="button" className={`app-sidebar-item ${route === 'dashboard' ? 'active' : ''}`} aria-current={route === 'dashboard' ? 'page' : undefined} onClick={() => setRoute('dashboard')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
             </span>
             <span className="app-sidebar-label">Dashboard</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'fleet' ? 'active' : ''}`} onClick={() => setRoute('fleet')}>
+          <button type="button" className={`app-sidebar-item ${route === 'fleet' ? 'active' : ''}`} aria-current={route === 'fleet' ? 'page' : undefined} onClick={() => setRoute('fleet')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" /><polygon points="16 8 20 8 23 11 23 16 16 16 16 8" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg>
             </span>
             <span className="app-sidebar-label">Fleet Acquisition</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'dispatch' ? 'active' : ''}`} onClick={() => setRoute('dispatch')}>
+          <button type="button" className={`app-sidebar-item ${route === 'dispatch' ? 'active' : ''}`} aria-current={route === 'dispatch' ? 'page' : undefined} onClick={() => setRoute('dispatch')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
             </span>
             <span className="app-sidebar-label">Dispatch</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'trips' ? 'active' : ''}`} onClick={() => setRoute('trips')}>
+          <button type="button" className={`app-sidebar-item ${route === 'trips' ? 'active' : ''}`} aria-current={route === 'trips' ? 'page' : undefined} onClick={() => setRoute('trips')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
             </span>
             <span className="app-sidebar-label">Trips</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'incidents' ? 'active' : ''}`} onClick={() => setRoute('incidents')}>
+          <button type="button" className={`app-sidebar-item ${route === 'incidents' ? 'active' : ''}`} aria-current={route === 'incidents' ? 'page' : undefined} onClick={() => setRoute('incidents')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
             </span>
             <span className="app-sidebar-label">Incidents</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'rates' ? 'active' : ''}`} onClick={() => setRoute('rates')}>
+          <button type="button" className={`app-sidebar-item ${route === 'rates' ? 'active' : ''}`} aria-current={route === 'rates' ? 'page' : undefined} onClick={() => setRoute('rates')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
             </span>
             <span className="app-sidebar-label">Rates</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'finance' ? 'active' : ''}`} onClick={() => setRoute('finance')}>
+          <button type="button" className={`app-sidebar-item ${route === 'finance' ? 'active' : ''}`} aria-current={route === 'finance' ? 'page' : undefined} onClick={() => setRoute('finance')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></svg>
             </span>
             <span className="app-sidebar-label">Finance</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'reports' ? 'active' : ''}`} onClick={() => setRoute('reports')}>
+          <button type="button" className={`app-sidebar-item ${route === 'reports' ? 'active' : ''}`} aria-current={route === 'reports' ? 'page' : undefined} onClick={() => setRoute('reports')}>
             <span className="app-sidebar-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" /></svg>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
             </span>
             <span className="app-sidebar-label">Reports</span>
           </button>
-          <button type="button" className={`app-sidebar-item ${route === 'admin' ? 'active' : ''}`} onClick={() => setRoute('admin')}>
+          <button type="button" className={`app-sidebar-item ${route === 'admin' ? 'active' : ''}`} aria-current={route === 'admin' ? 'page' : undefined} onClick={() => setRoute('admin')}>
             <span className="app-sidebar-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
             </span>
@@ -644,7 +701,7 @@ function FinanceSection({ onSubChange }: { onSubChange?: (label: string | null) 
         <h1 className="page-title">Finance</h1>
         <p className="page-subtitle">KPIs, billing, payout, and AR batch workflow.</p>
       </div>
-      <div className="sub-nav" style={{ marginBottom: '1rem' }}>
+      <div className="sub-nav">
         <button
           type="button"
           className={`sub-nav-btn ${sub === 'dashboard' ? 'active' : ''}`}
@@ -662,15 +719,6 @@ function FinanceSection({ onSubChange }: { onSubChange?: (label: string | null) 
       </div>
       {sub === 'dashboard' && <FinanceDashboard />}
       {sub === 'ar-batches' && <ArBatchesPage />}
-    </div>
-  );
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="page-header">
-      <h1 className="page-title">{title}</h1>
-      <p className="page-subtitle">Coming soon. Use sidebar to switch module.</p>
     </div>
   );
 }

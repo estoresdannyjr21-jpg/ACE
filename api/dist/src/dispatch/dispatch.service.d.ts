@@ -54,6 +54,11 @@ export declare class DispatchService {
             id: string;
             name: string;
         }[];
+        tripFieldOptions: {
+            originAreas: string[];
+            destinationAreas: string[];
+            vehicleTypes: string[];
+        };
     }>;
     createTrip(userId: string, tenantId: string, dto: CreateTripDto): Promise<{
         trip: {
@@ -136,85 +141,90 @@ export declare class DispatchService {
         podStatus?: PODStatus;
         clientAccountId?: string;
         internalRef?: string;
-    }): Promise<({
-        clientAccount: {
+        limit?: number;
+        offset?: number;
+    }): Promise<{
+        items: ({
+            clientAccount: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                status: string;
+                code: string;
+            };
+            serviceCategory: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                status: string;
+                code: string;
+                clientAccountId: string;
+                segmentType: string;
+            };
+            assignedDriver: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                email: string | null;
+                tenantId: string;
+                firstName: string;
+                lastName: string;
+                status: string;
+                phone: string | null;
+                spxDriverId: string | null;
+                licenseNumber: string | null;
+            };
+            assignedVehicle: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                status: string;
+                plateNumber: string;
+                vehicleType: string;
+                bodyType: string | null;
+            };
+        } & {
             id: string;
-            name: string;
             createdAt: Date;
             updatedAt: Date;
             tenantId: string;
-            status: string;
-            code: string;
-        };
-        serviceCategory: {
-            id: string;
-            name: string;
-            createdAt: Date;
-            updatedAt: Date;
-            status: string;
-            code: string;
             clientAccountId: string;
             segmentType: string;
-        };
-        assignedDriver: {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            email: string | null;
-            tenantId: string;
-            firstName: string;
-            lastName: string;
-            status: string;
-            phone: string | null;
-            spxDriverId: string | null;
-            licenseNumber: string | null;
-        };
-        assignedVehicle: {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            tenantId: string;
-            status: string;
-            plateNumber: string;
+            serviceCategoryId: string;
             vehicleType: string;
-            bodyType: string | null;
-        };
-    } & {
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        tenantId: string;
-        clientAccountId: string;
-        segmentType: string;
-        serviceCategoryId: string;
-        vehicleType: string;
-        internalRef: string;
-        externalRef: string | null;
-        requestDeliveryDate: Date | null;
-        runsheetDate: Date;
-        abStatus: string | null;
-        originArea: string;
-        destinationArea: string;
-        routeCode: string | null;
-        tripOrder: number | null;
-        callTime: Date;
-        assignedDriverId: string | null;
-        assignedVehicleId: string | null;
-        operatorIdAtAssignment: string | null;
-        assignmentStatus: import(".prisma/client").$Enums.AssignmentStatus;
-        assignedAt: Date | null;
-        acceptedAt: Date | null;
-        declinedAt: Date | null;
-        declineReason: string | null;
-        lastDriverEventAt: Date | null;
-        highLevelTripStatus: import(".prisma/client").$Enums.HighLevelTripStatus;
-        podStatus: import(".prisma/client").$Enums.PODStatus;
-        podLastReviewedByUserId: string | null;
-        podLastReviewedAt: Date | null;
-        podRejectionComment: string | null;
-        createdByUserId: string;
-        clientTripRef: string | null;
-    })[]>;
+            internalRef: string;
+            externalRef: string | null;
+            requestDeliveryDate: Date | null;
+            runsheetDate: Date;
+            abStatus: string | null;
+            originArea: string;
+            destinationArea: string;
+            routeCode: string | null;
+            tripOrder: number | null;
+            callTime: Date;
+            assignedDriverId: string | null;
+            assignedVehicleId: string | null;
+            operatorIdAtAssignment: string | null;
+            assignmentStatus: import(".prisma/client").$Enums.AssignmentStatus;
+            assignedAt: Date | null;
+            acceptedAt: Date | null;
+            declinedAt: Date | null;
+            declineReason: string | null;
+            lastDriverEventAt: Date | null;
+            highLevelTripStatus: import(".prisma/client").$Enums.HighLevelTripStatus;
+            podStatus: import(".prisma/client").$Enums.PODStatus;
+            podLastReviewedByUserId: string | null;
+            podLastReviewedAt: Date | null;
+            podRejectionComment: string | null;
+            createdByUserId: string;
+            clientTripRef: string | null;
+        })[];
+        totalCount: number;
+    }>;
     getTripById(tenantId: string, tripId: string): Promise<{
         clientAccount: {
             id: string;

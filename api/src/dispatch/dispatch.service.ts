@@ -91,7 +91,40 @@ export class DispatchService {
       orderBy: { name: 'asc' },
     });
 
-    return { clients, drivers, vehicles, operators };
+    const [originRows, destRows, tripVtRows, vehVtRows] = await Promise.all([
+      this.prisma.trip.groupBy({
+        by: ['originArea'],
+        where: { tenantId },
+      }),
+      this.prisma.trip.groupBy({
+        by: ['destinationArea'],
+        where: { tenantId },
+      }),
+      this.prisma.trip.groupBy({
+        by: ['vehicleType'],
+        where: { tenantId },
+      }),
+      this.prisma.vehicle.groupBy({
+        by: ['vehicleType'],
+        where: { tenantId, status: 'ACTIVE' },
+      }),
+    ]);
+
+    const uniqSorted = (values: string[]) =>
+      [...new Set(values.map((s) => String(s).trim()).filter(Boolean))].sort(
+        (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }),
+      );
+
+    const tripFieldOptions = {
+      originAreas: uniqSorted(originRows.map((r) => r.originArea)),
+      destinationAreas: uniqSorted(destRows.map((r) => r.destinationArea)),
+      vehicleTypes: uniqSorted([
+        ...tripVtRows.map((r) => r.vehicleType),
+        ...vehVtRows.map((r) => r.vehicleType),
+      ]),
+    };
+
+    return { clients, drivers, vehicles, operators, tripFieldOptions };
   }
 
   async createTrip(userId: string, tenantId: string, dto: CreateTripDto) {
@@ -225,6 +258,8 @@ export class DispatchService {
       podStatus?: PODStatus;
       clientAccountId?: string;
       internalRef?: string;
+      limit?: number;
+      offset?: number;
     },
   ) {
     const where: any = { tenantId };
@@ -239,7 +274,8 @@ export class DispatchService {
     if (query?.clientAccountId) where.clientAccountId = query.clientAccountId;
     if (query?.internalRef) where.internalRef = { contains: query.internalRef, mode: 'insensitive' };
 
-    return this.prisma.trip.findMany({
+    const totalCount = await this.prisma.trip.count({ where });
+    const items = await this.prisma.trip.findMany({
       where,
       include: {
         assignedDriver: true,
@@ -248,7 +284,11 @@ export class DispatchService {
         clientAccount: true,
       },
       orderBy: { createdAt: 'desc' },
+      ...(query?.limit != null
+        ? { take: query.limit, skip: query.offset ?? 0 }
+        : {}),
     });
+    return { items, totalCount };
   }
 
   async getTripById(tenantId: string, tripId: string) {

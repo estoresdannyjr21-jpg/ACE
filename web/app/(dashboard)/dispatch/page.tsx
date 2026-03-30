@@ -52,10 +52,17 @@ interface LookupVehicle {
   }>
 }
 
+interface TripFieldOptions {
+  originAreas: string[]
+  destinationAreas: string[]
+  vehicleTypes: string[]
+}
+
 interface DispatchLookups {
   clients: LookupClient[]
   drivers: LookupDriver[]
   vehicles: LookupVehicle[]
+  tripFieldOptions?: TripFieldOptions
 }
 
 function StatPill({
@@ -168,6 +175,10 @@ export default function DispatchPage() {
   const selectedDriverOperatorId = selectedDriver?.assignments?.[0]?.operatorId ?? null
 
   const vehiclesAll = lookups?.vehicles ?? []
+  const originChoices = lookups?.tripFieldOptions?.originAreas ?? []
+  const destinationChoices = lookups?.tripFieldOptions?.destinationAreas ?? []
+  const vehicleTypeChoicesBase = lookups?.tripFieldOptions?.vehicleTypes ?? []
+
   const vehicles = useMemo(() => {
     if (!selectedDriverOperatorId) return vehiclesAll
     return vehiclesAll.filter((v) => v.assignments?.[0]?.operatorId === selectedDriverOperatorId)
@@ -177,6 +188,15 @@ export default function DispatchPage() {
     () => vehiclesAll.find((v) => v.id === assignedVehicleId) ?? null,
     [vehiclesAll, assignedVehicleId],
   )
+
+  const vehicleTypeChoices = useMemo(() => {
+    const set = new Set(vehicleTypeChoicesBase)
+    const v = selectedVehicle?.vehicleType
+    if (v) set.add(v)
+    return [...set].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    )
+  }, [vehicleTypeChoicesBase, selectedVehicle?.vehicleType])
 
   useEffect(() => {
     // keep service category valid for selected client
@@ -245,6 +265,8 @@ export default function DispatchPage() {
 
       const res = await api.post('/dispatch/trips', payload)
       const trip = res.data?.trip ?? res.data
+
+      api.get('/dispatch/lookups').then((r) => setLookups(r.data)).catch(() => {})
 
       setCreatedTripRef({
         id: trip.id,
@@ -415,23 +437,59 @@ export default function DispatchPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="originArea">Origin area</Label>
-              <Input
-                id="originArea"
-                value={originArea}
-                onChange={(e) => setOriginArea(e.target.value)}
-                placeholder="e.g. SPX MARIKINA"
-                required
-              />
+              {originChoices.length > 0 ? (
+                <select
+                  id="originArea"
+                  className="flex h-11 w-full rounded-sm border border-atc-border bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-atc-accent"
+                  value={originArea}
+                  onChange={(e) => setOriginArea(e.target.value)}
+                  disabled={loadingLookups}
+                  required
+                >
+                  <option value="">— Select origin area —</option>
+                  {originChoices.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id="originArea"
+                  value={originArea}
+                  onChange={(e) => setOriginArea(e.target.value)}
+                  placeholder="No prior trips — type origin area"
+                  required
+                />
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="destinationArea">Destination area</Label>
-              <Input
-                id="destinationArea"
-                value={destinationArea}
-                onChange={(e) => setDestinationArea(e.target.value)}
-                placeholder="e.g. SPX TAGUIG"
-                required
-              />
+              {destinationChoices.length > 0 ? (
+                <select
+                  id="destinationArea"
+                  className="flex h-11 w-full rounded-sm border border-atc-border bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-atc-accent"
+                  value={destinationArea}
+                  onChange={(e) => setDestinationArea(e.target.value)}
+                  disabled={loadingLookups}
+                  required
+                >
+                  <option value="">— Select destination area —</option>
+                  {destinationChoices.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id="destinationArea"
+                  value={destinationArea}
+                  onChange={(e) => setDestinationArea(e.target.value)}
+                  placeholder="No prior trips — type destination area"
+                  required
+                />
+              )}
             </div>
           </div>
 
@@ -512,12 +570,30 @@ export default function DispatchPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="vehicleType">Vehicle type</Label>
-              <Input
-                id="vehicleType"
-                value={vehicleType}
-                readOnly
-                placeholder="Auto-set from selected vehicle"
-              />
+              {vehicleTypeChoices.length > 0 ? (
+                <select
+                  id="vehicleType"
+                  className="flex h-11 w-full rounded-sm border border-atc-border bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-atc-accent"
+                  value={vehicleType}
+                  onChange={(e) => setVehicleType(e.target.value)}
+                  disabled={loadingLookups}
+                  required
+                >
+                  <option value="">— Select vehicle type —</option>
+                  {vehicleTypeChoices.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id="vehicleType"
+                  value={vehicleType}
+                  readOnly
+                  placeholder="Auto-set from selected vehicle"
+                />
+              )}
             </div>
           </div>
 
