@@ -152,8 +152,8 @@ export declare class FinanceController {
         };
         documents: {
             id: string;
-            tripId: string;
             fileKey: string;
+            tripId: string;
             uploadedAt: Date;
             docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;

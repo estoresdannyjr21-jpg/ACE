@@ -618,6 +618,83 @@ export async function importPaymentListCsv(
   return res.json();
 }
 
+// ——— Rates (lookups + wetlease config) ———
+
+export type RatesLookups = {
+  clients: Array<{
+    id: string;
+    name: string;
+    code: string;
+    serviceCategories: Array<{ id: string; name: string; code: string }>;
+  }>;
+};
+
+export async function fetchRatesLookups(): Promise<RatesLookups> {
+  const res = await fetch(`${API_BASE}/rates/lookups`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`Rates lookups failed: ${res.status}`);
+  return res.json();
+}
+
+export type WetleaseFirstTripRateRow = {
+  id: string;
+  clientAccountId: string;
+  serviceCategoryId: string;
+  firstTripClientBillAmount: number | null;
+  firstTripPayoutVatable: number;
+  effectiveStart: string;
+  effectiveEnd: string | null;
+  clientAccount?: { id: string; name: string; code: string };
+  serviceCategory?: { id: string; name: string; code: string };
+};
+
+export async function listWetleaseFirstTripRates(params: {
+  clientAccountId?: string;
+  serviceCategoryId?: string;
+} = {}): Promise<WetleaseFirstTripRateRow[]> {
+  const q = new URLSearchParams();
+  if (params.clientAccountId) q.set('clientAccountId', params.clientAccountId);
+  if (params.serviceCategoryId) q.set('serviceCategoryId', params.serviceCategoryId);
+  const url = `${API_BASE}/rates/wetlease-first-trip${q.toString() ? `?${q}` : ''}`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await res.text().catch(() => `Wetlease rates failed: ${res.status}`));
+  return res.json();
+}
+
+export async function createWetleaseFirstTripRate(body: {
+  clientAccountId: string;
+  serviceCategoryId: string;
+  firstTripClientBillAmount: number;
+  firstTripPayoutVatable: number;
+  effectiveStart: string;
+  effectiveEnd?: string;
+}): Promise<WetleaseFirstTripRateRow> {
+  const res = await fetch(`${API_BASE}/rates/wetlease-first-trip`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text().catch(() => `Create wetlease rate failed: ${res.status}`));
+  return res.json();
+}
+
+export async function updateWetleaseFirstTripRate(
+  id: string,
+  body: Partial<{
+    firstTripClientBillAmount: number;
+    firstTripPayoutVatable: number;
+    effectiveStart: string;
+    effectiveEnd: string;
+  }>,
+): Promise<WetleaseFirstTripRateRow> {
+  const res = await fetch(`${API_BASE}/rates/wetlease-first-trip/${id}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text().catch(() => `Update wetlease rate failed: ${res.status}`));
+  return res.json();
+}
+
 // ——— Rates CSV Import ———
 
 export type RatesImportResult = {

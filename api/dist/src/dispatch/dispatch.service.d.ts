@@ -247,8 +247,8 @@ export declare class DispatchService {
         };
         documents: {
             id: string;
-            tripId: string;
             fileKey: string;
+            tripId: string;
             uploadedAt: Date;
             docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
@@ -551,8 +551,8 @@ export declare class DispatchService {
         };
     }): Promise<{
         id: string;
-        tripId: string;
         fileKey: string;
+        tripId: string;
         uploadedAt: Date;
         docType: import(".prisma/client").$Enums.DocumentType;
         uploadedByUserId: string | null;

@@ -1,5 +1,14 @@
-import { useState, useId } from 'react';
-import { importRatesCsv, type RatesImportResult } from '../api/client';
+import { useEffect, useMemo, useState, useId } from 'react';
+import {
+  importRatesCsv,
+  fetchRatesLookups,
+  listWetleaseFirstTripRates,
+  createWetleaseFirstTripRate,
+  updateWetleaseFirstTripRate,
+  type RatesImportResult,
+  type RatesLookups,
+  type WetleaseFirstTripRateRow,
+} from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
@@ -31,6 +40,55 @@ export function RatesPage() {
   const [result, setResult] = useState<RatesImportResult | null>(null);
   const [previewRun, setPreviewRun] = useState(false);
   const [commitOpen, setCommitOpen] = useState(false);
+
+  const [lookups, setLookups] = useState<RatesLookups | null>(null);
+  const [wetleaseRows, setWetleaseRows] = useState<WetleaseFirstTripRateRow[]>([]);
+  const [wetleaseLoading, setWetleaseLoading] = useState(false);
+  const [wetleaseError, setWetleaseError] = useState<string | null>(null);
+
+  const [wlClientAccountId, setWlClientAccountId] = useState('');
+  const [wlServiceCategoryId, setWlServiceCategoryId] = useState('');
+  const [wlClientBill, setWlClientBill] = useState('');
+  const [wlSubcontractor, setWlSubcontractor] = useState('');
+  const [wlEffStart, setWlEffStart] = useState(() => new Date().toISOString().slice(0, 10));
+  const [wlEffEnd, setWlEffEnd] = useState('');
+
+  const loadWetlease = async () => {
+    setWetleaseLoading(true);
+    setWetleaseError(null);
+    try {
+      const [lk, rows] = await Promise.all([fetchRatesLookups(), listWetleaseFirstTripRates()]);
+      setLookups(lk);
+      setWetleaseRows(rows);
+      if (!wlClientAccountId && lk.clients.length === 1) {
+        setWlClientAccountId(lk.clients[0].id);
+      }
+    } catch (e) {
+      setWetleaseError(e instanceof Error ? e.message : 'Failed to load wetlease rates');
+    } finally {
+      setWetleaseLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadWetlease();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selectedClient = useMemo(() => {
+    return lookups?.clients.find((c) => c.id === wlClientAccountId) ?? null;
+  }, [lookups, wlClientAccountId]);
+
+  const wetleaseCategories = useMemo(() => {
+    const cats = selectedClient?.serviceCategories ?? [];
+    return cats.filter((c) => c.code === 'SPX_FM_4WCV_WETLEASE' || c.code === 'SPX_FM_6WCV_WETLEASE');
+  }, [selectedClient]);
+
+  useEffect(() => {
+    if (!wlServiceCategoryId) return;
+    const ok = wetleaseCategories.some((c) => c.id === wlServiceCategoryId);
+    if (!ok) setWlServiceCategoryId('');
+  }, [wetleaseCategories, wlServiceCategoryId]);
 
   const handleFileChange = (f: File | null) => {
     setFile(f);
@@ -96,12 +154,180 @@ export function RatesPage() {
     }
   };
 
+  const createWetlease = async () => {
+    if (!wlClientAccountId || !wlServiceCategoryId || !wlClientBill || !wlSubcontractor || !wlEffStart) {
+      toast.show('Fill wetlease required fields (client, category, client bill, subcontractor base, effective start).', { variant: 'error' });
+      return;
+    }
+    const clientBill = Number(wlClientBill);
+    const subcontractor = Number(wlSubcontractor);
+    if (!Number.isFinite(clientBill) || clientBill <= 0 || !Number.isFinite(subcontractor) || subcontractor < 0) {
+      toast.show('Wetlease amounts must be valid numbers (client bill > 0, subcontractor >= 0).', { variant: 'error' });
+      return;
+    }
+    try {
+      await createWetleaseFirstTripRate({
+        clientAccountId: wlClientAccountId,
+        serviceCategoryId: wlServiceCategoryId,
+        firstTripClientBillAmount: clientBill,
+        firstTripPayoutVatable: subcontractor,
+        effectiveStart: wlEffStart,
+        ...(wlEffEnd ? { effectiveEnd: wlEffEnd } : {}),
+      });
+      setWlClientBill('');
+      setWlSubcontractor('');
+      setWlEffEnd('');
+      await loadWetlease();
+      toast.show('Wetlease rate saved', { variant: 'success' });
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : 'Save failed', { variant: 'error' });
+    }
+  };
+
+  const updateWetleaseRow = async (row: WetleaseFirstTripRateRow, patch: Record<string, unknown>) => {
+    try {
+      await updateWetleaseFirstTripRate(row.id, patch as any);
+      await loadWetlease();
+      toast.show('Wetlease rate updated', { variant: 'success' });
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : 'Update failed', { variant: 'error' });
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">Rates</h1>
         <p className="page-subtitle">Import route rates from CSV. Use the template and run Preview before Commit.</p>
       </div>
+
+      <section className="panel">
+        <div className="panel-header-row">
+          <h3 className="panel-title">Wetlease first-trip rates</h3>
+          <button type="button" className="btn btn-secondary" onClick={() => void loadWetlease()} disabled={wetleaseLoading}>
+            {wetleaseLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        <p className="page-subtitle page-subtitle--spaced">
+          Configure wetlease <strong>client bill</strong> vs <strong>subcontractor</strong> first-trip amounts with effective dates.
+          Same-day additional trips for the same driver are computed at <strong>PHP 0</strong> trip payout (reimbursables still apply).
+        </p>
+        {wetleaseError && <p className="login-error">{wetleaseError}</p>}
+
+        <div className="form-grid">
+          <div className="filter-group">
+            <label className="filter-label" htmlFor={`${fid}-wl-client`}>Client</label>
+            <select
+              id={`${fid}-wl-client`}
+              className="filter-select"
+              value={wlClientAccountId}
+              onChange={(e) => setWlClientAccountId(e.target.value)}
+              disabled={wetleaseLoading}
+            >
+              <option value="">Select client</option>
+              {(lookups?.clients ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label" htmlFor={`${fid}-wl-cat`}>Wetlease category</label>
+            <select
+              id={`${fid}-wl-cat`}
+              className="filter-select"
+              value={wlServiceCategoryId}
+              onChange={(e) => setWlServiceCategoryId(e.target.value)}
+              disabled={wetleaseLoading || !wlClientAccountId}
+            >
+              <option value="">Select category</option>
+              {wetleaseCategories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label" htmlFor={`${fid}-wl-client-bill`}>Client rate (bill) <span className="text-required" aria-hidden>*</span></label>
+            <input
+              id={`${fid}-wl-client-bill`}
+              className="filter-input"
+              inputMode="decimal"
+              value={wlClientBill}
+              onChange={(e) => setWlClientBill(e.target.value)}
+              placeholder="e.g. 4100.00"
+            />
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label" htmlFor={`${fid}-wl-sub`}>Subcontractor base (VATable) <span className="text-required" aria-hidden>*</span></label>
+            <input
+              id={`${fid}-wl-sub`}
+              className="filter-input"
+              inputMode="decimal"
+              value={wlSubcontractor}
+              onChange={(e) => setWlSubcontractor(e.target.value)}
+              placeholder="e.g. 3100.00"
+            />
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label" htmlFor={`${fid}-wl-start`}>Effective start <span className="text-required" aria-hidden>*</span></label>
+            <input
+              id={`${fid}-wl-start`}
+              type="date"
+              className="filter-input"
+              value={wlEffStart}
+              onChange={(e) => setWlEffStart(e.target.value)}
+            />
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label" htmlFor={`${fid}-wl-end`}>Effective end (optional)</label>
+            <input
+              id={`${fid}-wl-end`}
+              type="date"
+              className="filter-input"
+              value={wlEffEnd}
+              onChange={(e) => setWlEffEnd(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="form-actions-row">
+          <button type="button" className="btn btn-primary" onClick={() => void createWetlease()} disabled={wetleaseLoading}>
+            Save wetlease rate
+          </button>
+          <span className="text-muted">Tip: end the old row, then create a new one for changes.</span>
+        </div>
+
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Category</th>
+                <th>Client bill</th>
+                <th>Subcontractor base</th>
+                <th>Effective</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wetleaseRows.length === 0 ? (
+                <tr><td colSpan={6} className="text-muted">No wetlease rows.</td></tr>
+              ) : wetleaseRows.map((r) => (
+                <WetleaseRow
+                  key={r.id}
+                  row={r}
+                  disabled={wetleaseLoading}
+                  onSave={(patch) => void updateWetleaseRow(r, patch)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="panel">
         <div className="panel-header-inline">
@@ -224,5 +450,90 @@ export function RatesPage() {
         }}
       />
     </div>
+  );
+}
+
+function WetleaseRow({
+  row,
+  disabled,
+  onSave,
+}: {
+  row: WetleaseFirstTripRateRow;
+  disabled: boolean;
+  onSave: (patch: Record<string, unknown>) => void;
+}) {
+  const [clientBill, setClientBill] = useState(row.firstTripClientBillAmount ?? 0);
+  const [subBase, setSubBase] = useState(row.firstTripPayoutVatable ?? 0);
+  const [effStart, setEffStart] = useState(row.effectiveStart?.slice(0, 10) ?? '');
+  const [effEnd, setEffEnd] = useState(row.effectiveEnd ? row.effectiveEnd.slice(0, 10) : '');
+
+  const dirty =
+    clientBill !== (row.firstTripClientBillAmount ?? 0) ||
+    subBase !== row.firstTripPayoutVatable ||
+    effStart !== (row.effectiveStart?.slice(0, 10) ?? '') ||
+    effEnd !== (row.effectiveEnd ? row.effectiveEnd.slice(0, 10) : '');
+
+  return (
+    <tr>
+      <td>{row.clientAccount?.code ?? row.clientAccountId}</td>
+      <td>{row.serviceCategory?.code ?? row.serviceCategoryId}</td>
+      <td>
+        <input
+          className="filter-input"
+          style={{ width: 140 }}
+          inputMode="decimal"
+          value={String(clientBill)}
+          onChange={(e) => setClientBill(Number(e.target.value))}
+          disabled={disabled}
+        />
+      </td>
+      <td>
+        <input
+          className="filter-input"
+          style={{ width: 160 }}
+          inputMode="decimal"
+          value={String(subBase)}
+          onChange={(e) => setSubBase(Number(e.target.value))}
+          disabled={disabled}
+        />
+      </td>
+      <td>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="date"
+            className="filter-input"
+            value={effStart}
+            onChange={(e) => setEffStart(e.target.value)}
+            disabled={disabled}
+            style={{ width: 140 }}
+          />
+          <input
+            type="date"
+            className="filter-input"
+            value={effEnd}
+            onChange={(e) => setEffEnd(e.target.value)}
+            disabled={disabled}
+            style={{ width: 140 }}
+          />
+        </div>
+      </td>
+      <td>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={disabled || !dirty}
+          onClick={() =>
+            onSave({
+              firstTripClientBillAmount: clientBill,
+              firstTripPayoutVatable: subBase,
+              ...(effStart ? { effectiveStart: effStart } : {}),
+              ...(effEnd ? { effectiveEnd: effEnd } : {}),
+            })
+          }
+        >
+          Save
+        </button>
+      </td>
+    </tr>
   );
 }

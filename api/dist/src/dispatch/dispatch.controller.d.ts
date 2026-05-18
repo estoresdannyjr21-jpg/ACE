@@ -330,8 +330,8 @@ export declare class DispatchController {
         };
         documents: {
             id: string;
-            tripId: string;
             fileKey: string;
+            tripId: string;
             uploadedAt: Date;
             docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
@@ -602,8 +602,8 @@ export declare class DispatchController {
     }>;
     proxyReimbursableDoc(req: any, tripId: string, dto: ProxyReimbursableDocDto): Promise<{
         id: string;
-        tripId: string;
         fileKey: string;
+        tripId: string;
         uploadedAt: Date;
         docType: import(".prisma/client").$Enums.DocumentType;
         uploadedByUserId: string | null;

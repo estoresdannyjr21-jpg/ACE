@@ -150,8 +150,8 @@ export declare class DriverService {
         };
         documents: {
             id: string;
-            tripId: string;
             fileKey: string;
+            tripId: string;
             uploadedAt: Date;
             docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
@@ -399,8 +399,8 @@ export declare class DriverService {
         fileKey: string;
     }): Promise<{
         id: string;
-        tripId: string;
         fileKey: string;
+        tripId: string;
         uploadedAt: Date;
         docType: import(".prisma/client").$Enums.DocumentType;
         uploadedByUserId: string | null;
