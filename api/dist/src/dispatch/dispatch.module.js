@@ -13,6 +13,7 @@ const barcode_cover_module_1 = require("../barcode-cover/barcode-cover.module");
 const incidents_module_1 = require("../incidents/incidents.module");
 const notifications_module_1 = require("../notifications/notifications.module");
 const rates_module_1 = require("../rates/rates.module");
+const trip_requirements_module_1 = require("../trip-requirements/trip-requirements.module");
 const dispatch_controller_1 = require("./dispatch.controller");
 const dispatch_service_1 = require("./dispatch.service");
 let DispatchModule = class DispatchModule {
@@ -20,7 +21,14 @@ let DispatchModule = class DispatchModule {
 exports.DispatchModule = DispatchModule;
 exports.DispatchModule = DispatchModule = __decorate([
     (0, common_1.Module)({
-        imports: [audit_module_1.AuditModule, notifications_module_1.NotificationsModule, incidents_module_1.IncidentsModule, barcode_cover_module_1.BarcodeCoverModule, rates_module_1.RatesModule],
+        imports: [
+            audit_module_1.AuditModule,
+            notifications_module_1.NotificationsModule,
+            incidents_module_1.IncidentsModule,
+            barcode_cover_module_1.BarcodeCoverModule,
+            rates_module_1.RatesModule,
+            trip_requirements_module_1.TripRequirementsModule,
+        ],
         controllers: [dispatch_controller_1.DispatchController],
         providers: [dispatch_service_1.DispatchService],
         exports: [dispatch_service_1.DispatchService],

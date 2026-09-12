@@ -27,6 +27,10 @@ import {
   ProxyReimbursableDocDto,
   ProxyTripEventDto,
 } from './dto/proxy-update.dto';
+import {
+  ForceCompleteTripDto,
+  FulfillTripRequirementsDto,
+} from '../trip-requirements/dto';
 
 @ApiTags('Dispatch')
 @ApiBearerAuth()
@@ -96,6 +100,85 @@ export class DispatchController {
   @ApiOperation({ summary: 'Get trip by ID' })
   async getTripById(@Request() req, @Param('id') tripId: string) {
     return this.service.getTripById(req.user.tenantId, tripId);
+  }
+
+  @Get('trips/:id/requirements')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.MANAGER,
+    UserRole.OPERATIONS_ACCOUNT_COORDINATOR,
+  )
+  @ApiOperation({
+    summary: "Client trip requirements checklist for a trip (what's still missing before completion)",
+  })
+  async getTripRequirements(@Request() req, @Param('id') tripId: string) {
+    return this.service.getTripRequirements(req.user.tenantId, tripId);
+  }
+
+  @Post('trips/:id/requirements')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.MANAGER,
+    UserRole.OPERATIONS_ACCOUNT_COORDINATOR,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Upload missing documents / details on behalf of the driver to satisfy client trip requirements',
+  })
+  async fulfillTripRequirements(
+    @Request() req,
+    @Param('id') tripId: string,
+    @Body() dto: FulfillTripRequirementsDto,
+  ) {
+    return this.service.fulfillTripRequirementsAsCoordinator({
+      userId: req.user.id,
+      tenantId: req.user.tenantId,
+      tripId,
+      items: dto.items,
+    });
+  }
+
+  @Post('trips/:id/complete')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.MANAGER,
+    UserRole.OPERATIONS_ACCOUNT_COORDINATOR,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Complete a trip on behalf of the driver (all client requirements must be satisfied first)',
+  })
+  async completeTrip(@Request() req, @Param('id') tripId: string) {
+    return this.service.completeTripAsCoordinator({
+      userId: req.user.id,
+      tenantId: req.user.tenantId,
+      tripId,
+    });
+  }
+
+  @Post('trips/:id/force-complete')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Admin override: force close a trip, bypassing all client trip requirement validation (audited)',
+  })
+  async forceCompleteTrip(
+    @Request() req,
+    @Param('id') tripId: string,
+    @Body() dto: ForceCompleteTripDto,
+  ) {
+    return this.service.forceCompleteTrip({
+      userId: req.user.id,
+      tenantId: req.user.tenantId,
+      tripId,
+      reason: dto.reason,
+    });
   }
 
   @Put('trips/:id/pod/verify')

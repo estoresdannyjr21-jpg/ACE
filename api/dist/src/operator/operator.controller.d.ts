@@ -14,7 +14,17 @@ export declare class OperatorController {
             status: string;
             code: string;
             clientAccountId: string;
-            segmentType: string;
+            serviceSegmentId: string;
+            payoutTermsBusinessDays: number;
+            docSubmissionDay: string;
+            cycleStartDay: string;
+            excludeWeekends: boolean;
+            subcontractorInvoiceDeadlineDays: number;
+            callTimeGraceMinutes: number;
+            vatRate: import("@prisma/client/runtime/library").Decimal;
+            adminFeePercent: import("@prisma/client/runtime/library").Decimal;
+            withholdingPercent: import("@prisma/client/runtime/library").Decimal;
+            firstTripOnlyPayout: boolean;
         };
         assignedDriver: {
             id: string;
@@ -72,9 +82,9 @@ export declare class OperatorController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -99,6 +109,10 @@ export declare class OperatorController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     })[]>;

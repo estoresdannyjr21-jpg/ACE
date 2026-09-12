@@ -1,5 +1,5 @@
 // Ace Truckers Corp ERP SaaS - Prisma Schema (copy for API)
-// Phase 1: Shopee Express (SPX)
+// Multi-client: clients, segments, categories and trip requirements are master data
 // Keep in sync with root prisma/schema.prisma
 
 generator client {
@@ -22,7 +22,7 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   users             User[]
-  clientAccounts    ClientAccount[]
+  clientAccounts    Client[]
   operators         Operator[]
   drivers           Driver[]
   vehicles          Vehicle[]
@@ -33,6 +33,7 @@ model Tenant {
   arBatches                ArBatch[]
   auditLogs                AuditLog[]
   driverAvailability       DriverAvailability[]
+  clientTripRequirements   ClientTripRequirement[]
 
   @@map("tenants")
 }
@@ -73,6 +74,8 @@ model User {
   operator          Operator?         @relation(fields: [operatorId], references: [id])
   createdTrips      Trip[]            @relation("TripCreator")
   reviewedPODs      Trip[]            @relation("PODReviewer")
+  completedTrips    Trip[]            @relation("TripCompleter")
+  requirementFulfillments TripRequirementFulfillment[]
   reportedIncidents TripIncident[] @relation("TripIncidentReporter")
   resolvedIncidents TripIncident[] @relation("TripIncidentResolver")
   incidentUpdates   TripIncidentUpdate[]
@@ -100,10 +103,12 @@ model UserFcmToken {
 }
 
 // ============================================
-// CLIENT ACCOUNTS & SERVICE CONFIG
+// MASTER DATA: CLIENTS, SEGMENTS, CATEGORIES
+// Operational and financial rules live here as data, so new
+// clients can be onboarded without touching the codebase.
 // ============================================
 
-model ClientAccount {
+model Client {
   id        String   @id @default(cuid())
   tenantId  String
   name      String
@@ -112,9 +117,10 @@ model ClientAccount {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  serviceSegments   ServiceSegment[]
   serviceCategories ServiceCategory[]
-  serviceConfigs    ClientServiceConfig[]
+  tripRequirements  ClientTripRequirement[]
   trips             Trip[]
   routeRates              RouteRate[]
   wetleaseFirstTripRates  WetleaseFirstTripRate[]
@@ -122,45 +128,128 @@ model ClientAccount {
   payoutBatches            PayoutBatch[]
   arBatches               ArBatch[]
 
+  @@unique([tenantId, code])
   @@map("client_accounts")
 }
 
-model ServiceCategory {
+model ServiceSegment {
   id              String   @id @default(cuid())
   clientAccountId String
   name            String
   code            String
-  segmentType     String
+  sortOrder       Int      @default(0)
   status          String   @default("ACTIVE")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  clientAccount ClientAccount    @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
-  serviceConfig ClientServiceConfig?
+  client            Client            @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceCategories ServiceCategory[]
+
+  @@unique([clientAccountId, code])
+  @@map("service_segments")
+}
+
+model ServiceCategory {
+  id               String   @id @default(cuid())
+  clientAccountId  String
+  serviceSegmentId String
+  name             String
+  code             String
+  status           String   @default("ACTIVE")
+
+  // Payout cycle rules (moved off ClientServiceConfig, now per category)
+  payoutTermsBusinessDays          Int     @default(3)
+  docSubmissionDay                 String  @default("Tuesday")
+  cycleStartDay                    String  @default("Wednesday")
+  excludeWeekends                  Boolean @default(true)
+  subcontractorInvoiceDeadlineDays Int     @default(30)
+  callTimeGraceMinutes             Int     @default(15)
+
+  // Financial rules (previously hardcoded constants in FinanceService)
+  vatRate            Decimal @default(1.12) @db.Decimal(6, 4)
+  adminFeePercent    Decimal @default(0.02) @db.Decimal(6, 4)
+  withholdingPercent Decimal @default(0.02) @db.Decimal(6, 4)
+  // Wetlease-style categories: only the first trip of the day per driver carries
+  // trip payout; same-day extra trips pay PHP 0 but keep reimbursables.
+  firstTripOnlyPayout Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientAccount  Client         @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceSegment ServiceSegment @relation(fields: [serviceSegmentId], references: [id])
+
   trips                    Trip[]
   routeRates               RouteRate[]
   wetleaseFirstTripRates   WetleaseFirstTripRate[]
+  tripRequirements         ClientTripRequirement[]
 
+  @@unique([clientAccountId, code])
   @@map("service_categories")
 }
 
-model ClientServiceConfig {
-  id                          String   @id @default(cuid())
-  clientAccountId             String
-  serviceCategoryId           String   @unique
-  payoutTermsBusinessDays     Int      @default(3)
-  docSubmissionDay            String   @default("Tuesday")
-  cycleStartDay               String   @default("Wednesday")
-  excludeWeekends             Boolean  @default(true)
-  subcontractorInvoiceDeadlineDays Int @default(30)
-  callTimeGraceMinutes        Int      @default(15)
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+// ============================================
+// MASTER DATA: DYNAMIC TRIP REQUIREMENTS
+// ============================================
 
-  clientAccount   ClientAccount   @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
-  serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id], onDelete: Cascade)
+enum TripRequirementKind {
+  DOCUMENT
+  FIELD
+}
 
-  @@map("client_service_configs")
+enum TripCompletionSource {
+  DRIVER
+  COORDINATOR
+  ADMIN_FORCE
+}
+
+// What a client needs before a trip may be completed
+// (e.g. POD image, seal number, waybill number).
+model ClientTripRequirement {
+  id              String   @id @default(cuid())
+  tenantId        String
+  clientAccountId String
+  // null = applies to every service category of the client
+  serviceCategoryId String?
+  code            String
+  label           String
+  kind            TripRequirementKind
+  docType         DocumentType?
+  required        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  status          String   @default("ACTIVE")
+  helpText        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client          Client           @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceCategory ServiceCategory? @relation(fields: [serviceCategoryId], references: [id], onDelete: Cascade)
+  fulfillments    TripRequirementFulfillment[]
+
+  @@unique([clientAccountId, code])
+  @@index([tenantId, clientAccountId, status])
+  @@map("client_trip_requirements")
+}
+
+model TripRequirementFulfillment {
+  id                String   @id @default(cuid())
+  tripId            String
+  requirementId     String
+  value             String?
+  fileKey           String?
+  source            TripCompletionSource @default(DRIVER)
+  fulfilledByUserId String
+  fulfilledAt       DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  trip        Trip                  @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  requirement ClientTripRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  fulfilledBy User                  @relation(fields: [fulfilledByUserId], references: [id])
+
+  @@unique([tripId, requirementId])
+  @@index([tripId])
+  @@map("trip_requirement_fulfillments")
 }
 
 // ============================================
@@ -339,7 +428,7 @@ model FleetInventory {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  clientAccount ClientAccount @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  clientAccount Client @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
   vehicle       Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@map("fleet_inventory")
@@ -400,18 +489,24 @@ model Trip {
   podLastReviewedByUserId String?
   podLastReviewedAt     DateTime?
   podRejectionComment   String?
+  completedAt           DateTime?
+  completedByUserId     String?
+  completionSource      TripCompletionSource?
+  forceCompletedReason  String?
   createdByUserId       String
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount         ClientAccount       @relation(fields: [clientAccountId], references: [id])
+  clientAccount         Client              @relation(fields: [clientAccountId], references: [id])
   serviceCategory       ServiceCategory     @relation(fields: [serviceCategoryId], references: [id])
   assignedDriver        Driver?             @relation(fields: [assignedDriverId], references: [id])
   assignedVehicle       Vehicle?            @relation(fields: [assignedVehicleId], references: [id])
   operatorAtAssignment  Operator?           @relation(fields: [operatorIdAtAssignment], references: [id])
   creator               User                @relation("TripCreator", fields: [createdByUserId], references: [id])
   podReviewer           User?               @relation("PODReviewer", fields: [podLastReviewedByUserId], references: [id])
+  completedBy           User?               @relation("TripCompleter", fields: [completedByUserId], references: [id])
+  requirementFulfillments TripRequirementFulfillment[]
   stops                 TripStop[]
   events                TripEvent[]
   documents             TripDocument[]
@@ -613,7 +708,7 @@ model RouteRate {
   updatedAt           DateTime  @updatedAt
 
   tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount ClientAccount   @relation(fields: [clientAccountId], references: [id])
+  clientAccount Client          @relation(fields: [clientAccountId], references: [id])
   serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id])
 
   @@map("route_rates")
@@ -633,7 +728,7 @@ model WetleaseFirstTripRate {
   updatedAt              DateTime  @updatedAt
 
   tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount   ClientAccount   @relation(fields: [clientAccountId], references: [id])
+  clientAccount   Client          @relation(fields: [clientAccountId], references: [id])
   serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id])
 
   @@index([tenantId, clientAccountId, serviceCategoryId])
@@ -734,7 +829,7 @@ model PayoutBatch {
 
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   operator      Operator          @relation(fields: [operatorId], references: [id])
-  clientAccount ClientAccount     @relation(fields: [clientAccountId], references: [id])
+  clientAccount Client            @relation(fields: [clientAccountId], references: [id])
   trips         PayoutBatchTrip[]
   cashbondLedger DriverCashbondLedger[]
   exclusions    PayoutBatchExclusion[]
@@ -795,7 +890,7 @@ model ArBatch {
   updatedAt                 DateTime  @updatedAt
 
   tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount ClientAccount        @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  clientAccount Client               @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
   trips         ArBatchTrip[]
   unmatchedLines ArBatchUnmatchedLine[]
 

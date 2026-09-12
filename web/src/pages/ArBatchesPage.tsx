@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useId } from 'react';
+import { useCallback, useEffect, useMemo, useState, useId } from 'react';
 import {
   getArBatches,
   getArBatchById,
@@ -17,12 +17,6 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ArBatchStatusChip } from '../components/StatusChip';
 import { TableEmptyState } from '../components/TableEmptyState';
 import { readSessionJson, writeSessionJson, clearSessionKey } from '../lib/sessionFilters';
-
-const SERVICE_SEGMENTS = [
-  { value: 'FM_ONCALL', label: 'FM Oncall' },
-  { value: 'FM_WETLEASE', label: 'FM Wetlease' },
-  { value: 'MFM_ONCALL', label: 'MFM Oncall' },
-];
 
 const BATCH_STATUSES = [
   'REVERSE_BILLING_RECEIVED',
@@ -83,7 +77,12 @@ export function ArBatchesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lookups, setLookups] = useState<{
-    clients: Array<{ id: string; name: string; code: string }>;
+    clients: Array<{
+      id: string;
+      name: string;
+      code: string;
+      serviceSegments?: Array<{ id: string; name: string; code: string }>;
+    }>;
   } | null>(null);
   const [filters, setFilters] = useState<ListFilters>(() => {
     const p = readSessionJson<{ applied?: ListFilters; filters?: ListFilters }>(AR_BATCH_FILTERS_KEY);
@@ -105,7 +104,7 @@ export function ArBatchesPage() {
   // Reverse billing import
   const [rbFile, setRbFile] = useState<File | null>(null);
   const [rbClientCode, setRbClientCode] = useState('');
-  const [rbSegment, setRbSegment] = useState('FM_ONCALL');
+  const [rbSegment, setRbSegment] = useState('');
   const [rbCutoffStart, setRbCutoffStart] = useState('');
   const [rbCutoffEnd, setRbCutoffEnd] = useState('');
   const [rbLoading, setRbLoading] = useState(false);
@@ -130,6 +129,24 @@ export function ArBatchesPage() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  // Segments come from master data, per client
+  const allSegments = useMemo(() => {
+    const byCode = new Map<string, { code: string; name: string }>();
+    for (const c of lookups?.clients ?? []) {
+      for (const s of c.serviceSegments ?? []) byCode.set(s.code, { code: s.code, name: s.name });
+    }
+    return [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }, [lookups]);
+
+  const rbClientSegments = useMemo(
+    () => lookups?.clients?.find((c) => c.code === rbClientCode)?.serviceSegments ?? [],
+    [lookups, rbClientCode],
+  );
+
+  useEffect(() => {
+    if (rbSegment && !rbClientSegments.some((s) => s.code === rbSegment)) setRbSegment('');
+  }, [rbClientSegments, rbSegment]);
 
   const loadBatches = useCallback((params: ListFilters) => {
     setLoading(true);
@@ -361,8 +378,8 @@ export function ArBatchesPage() {
               onChange={(e) => setFilters((f) => ({ ...f, serviceSegment: e.target.value || undefined }))}
             >
               <option value="">All</option>
-              {SERVICE_SEGMENTS.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
+              {allSegments.map((s) => (
+                <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
               ))}
             </select>
           </div>
@@ -635,9 +652,16 @@ export function ArBatchesPage() {
           </div>
           <div className="filter-group">
             <span className="filter-label">Segment</span>
-            <select className="filter-select" value={rbSegment} onChange={(e) => { setRbSegment(e.target.value); setRbPreviewRun(false); }} style={{ width: '100%' }}>
-              {SERVICE_SEGMENTS.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
+            <select
+              className="filter-select"
+              value={rbSegment}
+              onChange={(e) => { setRbSegment(e.target.value); setRbPreviewRun(false); }}
+              style={{ width: '100%' }}
+              disabled={!rbClientCode}
+            >
+              <option value="">{rbClientCode ? 'Select segment' : 'Select a client first'}</option>
+              {rbClientSegments.map((s) => (
+                <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
               ))}
             </select>
           </div>

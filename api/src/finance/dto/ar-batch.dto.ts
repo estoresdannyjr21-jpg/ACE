@@ -7,7 +7,10 @@ export class GetArBatchesQueryDto {
   @IsString()
   clientAccountId?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by service segment', enum: ['FM_ONCALL', 'FM_WETLEASE', 'MFM_ONCALL'] })
+  @ApiPropertyOptional({
+    description: 'Filter by service segment code registered under the client',
+    example: 'FM_ONCALL',
+  })
   @IsOptional()
   @IsString()
   serviceSegment?: string;

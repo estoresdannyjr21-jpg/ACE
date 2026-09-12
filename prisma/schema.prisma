@@ -1,5 +1,5 @@
 // Ace Truckers Corp ERP SaaS - Prisma Schema
-// Phase 1: Shopee Express (SPX)
+// Multi-client: clients, segments, categories and trip requirements are master data
 
 generator client {
   provider = "prisma-client-js"
@@ -21,7 +21,7 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   users             User[]
-  clientAccounts    ClientAccount[]
+  clientAccounts    Client[]
   operators         Operator[]
   drivers           Driver[]
   vehicles          Vehicle[]
@@ -32,6 +32,7 @@ model Tenant {
   arBatches                ArBatch[]
   auditLogs                AuditLog[]
   driverAvailability       DriverAvailability[]
+  clientTripRequirements   ClientTripRequirement[]
 
   @@map("tenants")
 }
@@ -57,13 +58,13 @@ model User {
   id        String   @id @default(cuid())
   tenantId  String
   email     String   @unique
-  password  String // hashed
+  password  String
   firstName String
   lastName  String
   role      UserRole
-  status    String   @default("ACTIVE") // ACTIVE, INACTIVE
-  driverId  String?  @unique // if role is DRIVER
-  operatorId String? // if role is OPERATOR_USER
+  status    String   @default("ACTIVE")
+  driverId  String?  @unique
+  operatorId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -72,6 +73,8 @@ model User {
   operator          Operator?         @relation(fields: [operatorId], references: [id])
   createdTrips      Trip[]            @relation("TripCreator")
   reviewedPODs      Trip[]            @relation("PODReviewer")
+  completedTrips    Trip[]            @relation("TripCompleter")
+  requirementFulfillments TripRequirementFulfillment[]
   reportedIncidents TripIncident[] @relation("TripIncidentReporter")
   resolvedIncidents TripIncident[] @relation("TripIncidentResolver")
   incidentUpdates   TripIncidentUpdate[]
@@ -87,8 +90,8 @@ model User {
 model UserFcmToken {
   id        String   @id @default(cuid())
   userId    String
-  token     String   // FCM device token
-  deviceId  String?  // optional device identifier for upsert
+  token     String
+  deviceId  String?
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -99,71 +102,157 @@ model UserFcmToken {
 }
 
 // ============================================
-// CLIENT ACCOUNTS & SERVICE CONFIG
+// MASTER DATA: CLIENTS, SEGMENTS, CATEGORIES
+// Operational and financial rules live here as data, so new
+// clients can be onboarded without touching the codebase.
 // ============================================
 
-model ClientAccount {
+model Client {
   id        String   @id @default(cuid())
   tenantId  String
-  name      String // "Shopee Express"
-  code      String // "SPX"
+  name      String
+  code      String
   status    String   @default("ACTIVE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  serviceSegments   ServiceSegment[]
   serviceCategories ServiceCategory[]
-  serviceConfigs    ClientServiceConfig[]
+  tripRequirements  ClientTripRequirement[]
   trips             Trip[]
-  routeRates               RouteRate[]
-  wetleaseFirstTripRates   WetleaseFirstTripRate[]
-  fleetInventory           FleetInventory[]
+  routeRates              RouteRate[]
+  wetleaseFirstTripRates  WetleaseFirstTripRate[]
+  fleetInventory          FleetInventory[]
   payoutBatches            PayoutBatch[]
-  arBatches                ArBatch[]
+  arBatches               ArBatch[]
 
+  @@unique([tenantId, code])
   @@map("client_accounts")
 }
 
-model ServiceCategory {
+model ServiceSegment {
   id              String   @id @default(cuid())
   clientAccountId String
-  name            String // "SPX FM 4W Oncall", "SPX FM 6WCV Wetlease", etc.
+  name            String
   code            String
-  segmentType     String // "FM", "MEGA_FM", "MFM_SHUNTING"
+  sortOrder       Int      @default(0)
   status          String   @default("ACTIVE")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  clientAccount ClientAccount    @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
-  serviceConfig ClientServiceConfig?
+  client            Client            @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceCategories ServiceCategory[]
+
+  @@unique([clientAccountId, code])
+  @@map("service_segments")
+}
+
+model ServiceCategory {
+  id               String   @id @default(cuid())
+  clientAccountId  String
+  serviceSegmentId String
+  name             String
+  code             String
+  status           String   @default("ACTIVE")
+
+  // Payout cycle rules (moved off ClientServiceConfig, now per category)
+  payoutTermsBusinessDays          Int     @default(3)
+  docSubmissionDay                 String  @default("Tuesday")
+  cycleStartDay                    String  @default("Wednesday")
+  excludeWeekends                  Boolean @default(true)
+  subcontractorInvoiceDeadlineDays Int     @default(30)
+  callTimeGraceMinutes             Int     @default(15)
+
+  // Financial rules (previously hardcoded constants in FinanceService)
+  vatRate            Decimal @default(1.12) @db.Decimal(6, 4)
+  adminFeePercent    Decimal @default(0.02) @db.Decimal(6, 4)
+  withholdingPercent Decimal @default(0.02) @db.Decimal(6, 4)
+  // Wetlease-style categories: only the first trip of the day per driver carries
+  // trip payout; same-day extra trips pay PHP 0 but keep reimbursables.
+  firstTripOnlyPayout Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientAccount  Client         @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceSegment ServiceSegment @relation(fields: [serviceSegmentId], references: [id])
+
   trips                    Trip[]
   routeRates               RouteRate[]
   wetleaseFirstTripRates   WetleaseFirstTripRate[]
+  tripRequirements         ClientTripRequirement[]
 
+  @@unique([clientAccountId, code])
   @@map("service_categories")
 }
 
-model ClientServiceConfig {
-  id                          String   @id @default(cuid())
-  clientAccountId             String   @unique
-  serviceCategoryId           String   @unique
-  payoutTermsBusinessDays     Int      @default(3) // 3, 8, 13, etc.
-  docSubmissionDay            String   @default("Tuesday")
-  cycleStartDay               String   @default("Wednesday")
-  excludeWeekends             Boolean  @default(true)
-  subcontractorInvoiceDeadlineDays Int @default(30)
-  callTimeGraceMinutes        Int      @default(15)
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+// ============================================
+// MASTER DATA: DYNAMIC TRIP REQUIREMENTS
+// ============================================
 
-  clientAccount   ClientAccount   @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
-  serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id], onDelete: Cascade)
+enum TripRequirementKind {
+  DOCUMENT
+  FIELD
+}
 
-  @@map("client_service_configs")
+enum TripCompletionSource {
+  DRIVER
+  COORDINATOR
+  ADMIN_FORCE
+}
+
+// What a client needs before a trip may be completed
+// (e.g. POD image, seal number, waybill number).
+model ClientTripRequirement {
+  id              String   @id @default(cuid())
+  tenantId        String
+  clientAccountId String
+  // null = applies to every service category of the client
+  serviceCategoryId String?
+  code            String
+  label           String
+  kind            TripRequirementKind
+  docType         DocumentType?
+  required        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  status          String   @default("ACTIVE")
+  helpText        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client          Client           @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  serviceCategory ServiceCategory? @relation(fields: [serviceCategoryId], references: [id], onDelete: Cascade)
+  fulfillments    TripRequirementFulfillment[]
+
+  @@unique([clientAccountId, code])
+  @@index([tenantId, clientAccountId, status])
+  @@map("client_trip_requirements")
+}
+
+model TripRequirementFulfillment {
+  id                String   @id @default(cuid())
+  tripId            String
+  requirementId     String
+  value             String?
+  fileKey           String?
+  source            TripCompletionSource @default(DRIVER)
+  fulfilledByUserId String
+  fulfilledAt       DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  trip        Trip                  @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  requirement ClientTripRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  fulfilledBy User                  @relation(fields: [fulfilledByUserId], references: [id])
+
+  @@unique([tripId, requirementId])
+  @@index([tripId])
+  @@map("trip_requirement_fulfillments")
 }
 
 // ============================================
-// FLEET ACQUISITION (Operators, Drivers, Vehicles)
+// FLEET ACQUISITION
 // ============================================
 
 enum InvoiceType {
@@ -171,10 +260,6 @@ enum InvoiceType {
   NON_VATABLE
   NO_OR
 }
-
-// ============================================
-// DRIVER AVAILABILITY (Advance Booking / Coding Day)
-// ============================================
 
 enum DriverAvailabilityStatus {
   AVAILABLE
@@ -191,10 +276,10 @@ model Operator {
   address     String?
   taxId       String?
   invoiceType InvoiceType  @default(VATABLE)
-  bankName    String?      // restricted access
-  bankAccount String?      // restricted access
-  bankBranch  String?      // restricted access
-  status      String       @default("ACTIVE") // ACTIVE, INACTIVE
+  bankName    String?
+  bankAccount String?
+  bankBranch  String?
+  status      String       @default("ACTIVE")
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -211,13 +296,13 @@ model Operator {
 model Driver {
   id           String   @id @default(cuid())
   tenantId     String
-  spxDriverId  String?  // SPX driver ID
+  spxDriverId  String?
   firstName    String
   lastName     String
   phone        String?
   email        String?
   licenseNumber String?
-  status       String   @default("ACTIVE") // ACTIVE, INACTIVE
+  status       String   @default("ACTIVE")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -226,7 +311,6 @@ model Driver {
   documents           DriverDocument[]
   assignments         DriverOperatorAssignment[]
   trips               Trip[]
-  // Incidents are linked to Trip, not directly to Driver in Phase 1
   availability         DriverAvailability[]
   cashbondAccount     DriverCashbondAccount?
   cashbondLedger      DriverCashbondLedger[]
@@ -238,7 +322,7 @@ model DriverAvailability {
   id        String   @id @default(cuid())
   tenantId  String
   driverId  String
-  date      DateTime // day-only (store as date at midnight in TZ)
+  date      DateTime
   status    DriverAvailabilityStatus
   codingDay Boolean  @default(false)
   note      String?
@@ -256,7 +340,7 @@ model DriverAvailability {
 model DriverDocument {
   id          String   @id @default(cuid())
   driverId    String
-  docType     String // "NBI", "DRUG_TEST", "LICENSE", etc.
+  docType     String
   fileKey     String
   uploadedAt  DateTime @default(now())
   expiresAt   DateTime?
@@ -271,9 +355,9 @@ model Vehicle {
   id          String   @id @default(cuid())
   tenantId    String
   plateNumber String   @unique
-  vehicleType String // "4W", "6WCV", "10W", etc.
+  vehicleType String
   bodyType    String?
-  status      String   @default("ACTIVE") // ACTIVE, INACTIVE
+  status      String   @default("ACTIVE")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -289,10 +373,10 @@ model Vehicle {
 model VehicleDocument {
   id         String   @id @default(cuid())
   vehicleId  String
-  docType    String // "OR", "CR", "INSURANCE", etc.
+  docType    String
   fileKey    String
   uploadedAt DateTime @default(now())
-  expiresAt  DateTime?
+  expiresAt   DateTime?
   status     String   @default("ACTIVE")
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
@@ -300,13 +384,12 @@ model VehicleDocument {
   @@map("vehicle_documents")
 }
 
-// Assignment History (Transfers)
 model DriverOperatorAssignment {
   id         String    @id @default(cuid())
   driverId   String
   operatorId String
   startDate  DateTime
-  endDate    DateTime? // null = active
+  endDate    DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -322,7 +405,7 @@ model VehicleOperatorAssignment {
   vehicleId  String
   operatorId String
   startDate  DateTime
-  endDate    DateTime? // null = active
+  endDate    DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -333,26 +416,25 @@ model VehicleOperatorAssignment {
   @@map("vehicle_operator_assignments")
 }
 
-// Fleet Inventory Tagging
 model FleetInventory {
   id            String    @id @default(cuid())
   clientAccountId String
   vehicleId     String
-  tagType       String    // "PRIMARY", "SECONDARY"
+  tagType       String
   effectiveStart DateTime
   effectiveEnd   DateTime?
   status        String    @default("ACTIVE")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  clientAccount ClientAccount @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  clientAccount Client @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
   vehicle       Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@map("fleet_inventory")
 }
 
 // ============================================
-// TRIPS, STOPS, EVENTS, DOCUMENTS
+// TRIPS
 // ============================================
 
 enum AssignmentStatus {
@@ -380,51 +462,56 @@ model Trip {
   tenantId              String
   clientAccountId       String
   serviceCategoryId     String
-  segmentType           String // "FM", "MEGA_FM", "MFM_SHUNTING"
-  internalRef           String   @unique // generated
-  externalRef           String? // Linehaul Trip # for Mega FM / Shunting
+  segmentType           String
+  internalRef           String   @unique
+  externalRef           String?
   requestDeliveryDate   DateTime?
   runsheetDate          DateTime
-  abStatus              String? // "WITH_AB", "NO_AB" (FM only)
+  abStatus              String?
   originArea            String
   destinationArea       String
   routeCode             String?
-  tripOrder             Int? // 1st/2nd/3rd for wetlease tier
+  tripOrder             Int?
   callTime              DateTime
-  vehicleType           String // derived from category but stored
+  vehicleType           String
   assignedDriverId      String?
   assignedVehicleId     String?
-  operatorIdAtAssignment String? // snapshot
+  operatorIdAtAssignment String?
   assignmentStatus      AssignmentStatus  @default(ASSIGNED_PENDING_ACCEPTANCE)
   assignedAt            DateTime?
   acceptedAt            DateTime?
   declinedAt            DateTime?
   declineReason         String?
-  lastDriverEventAt     DateTime? // updated on any driver event or incident
+  lastDriverEventAt     DateTime?
   highLevelTripStatus   HighLevelTripStatus @default(ASSIGNED)
   podStatus             PODStatus @default(POD_NOT_UPLOADED)
   podLastReviewedByUserId String?
   podLastReviewedAt     DateTime?
   podRejectionComment   String?
+  completedAt           DateTime?
+  completedByUserId     String?
+  completionSource      TripCompletionSource?
+  forceCompletedReason  String?
   createdByUserId       String
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount         ClientAccount       @relation(fields: [clientAccountId], references: [id])
+  clientAccount         Client              @relation(fields: [clientAccountId], references: [id])
   serviceCategory       ServiceCategory     @relation(fields: [serviceCategoryId], references: [id])
   assignedDriver        Driver?             @relation(fields: [assignedDriverId], references: [id])
   assignedVehicle       Vehicle?            @relation(fields: [assignedVehicleId], references: [id])
   operatorAtAssignment  Operator?           @relation(fields: [operatorIdAtAssignment], references: [id])
   creator               User                @relation("TripCreator", fields: [createdByUserId], references: [id])
   podReviewer           User?               @relation("PODReviewer", fields: [podLastReviewedByUserId], references: [id])
+  completedBy           User?               @relation("TripCompleter", fields: [completedByUserId], references: [id])
+  requirementFulfillments TripRequirementFulfillment[]
   stops                 TripStop[]
   events                TripEvent[]
   documents             TripDocument[]
   incidents             TripIncident[]     @relation("TripIncident_Trip")
   replacementIncidents  TripIncident[]     @relation("TripIncident_Replacement")
   finance               TripFinance?
-  // Rate is resolved by (client/category/origin/destination/date) at compute time
   payoutBatchTrips      PayoutBatchTrip[]
   payoutBatchExclusions PayoutBatchExclusion[]
   overrideRequest       PayoutOverrideRequest?
@@ -477,7 +564,7 @@ model TripEvent {
   gpsLng          Float?
   gpsAccuracy     Float?
   capturedOffline Boolean   @default(false)
-  createdByUserId String? // driver user id
+  createdByUserId String?
   createdAt       DateTime  @default(now())
 
   trip   Trip         @relation(fields: [tripId], references: [id], onDelete: Cascade)
@@ -620,9 +707,8 @@ model RouteRate {
   updatedAt           DateTime  @updatedAt
 
   tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount ClientAccount   @relation(fields: [clientAccountId], references: [id])
+  clientAccount Client          @relation(fields: [clientAccountId], references: [id])
   serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id])
-  // Trips don't store a direct FK; rate is resolved by matching rules
 
   @@map("route_rates")
 }
@@ -641,7 +727,7 @@ model WetleaseFirstTripRate {
   updatedAt              DateTime  @updatedAt
 
   tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount   ClientAccount   @relation(fields: [clientAccountId], references: [id])
+  clientAccount   Client          @relation(fields: [clientAccountId], references: [id])
   serviceCategory ServiceCategory @relation(fields: [serviceCategoryId], references: [id])
 
   @@index([tenantId, clientAccountId, serviceCategoryId])
@@ -649,7 +735,7 @@ model WetleaseFirstTripRate {
 }
 
 // ============================================
-// FINANCE PROCESSING
+// FINANCE
 // ============================================
 
 enum ReimbursableStatus {
@@ -678,29 +764,26 @@ model TripFinance {
   id                          String            @id @default(cuid())
   tripId                      String            @unique
   financeDocReceivedAt        DateTime?
+  // Gross / client billing amount for AR (from route billRateAmount or wetlease client tier).
   clientBillAmount            Decimal?          @db.Decimal(12, 2)
-  // Subcontractor computation snapshot
+  // Subcontractor vatable base before invoice-type split & admin fee (AP / payout side).
   vatableBaseRate             Decimal?          @db.Decimal(12, 2)
   nonVatBaseRate              Decimal?          @db.Decimal(12, 2)
   payoutBase                  Decimal?          @db.Decimal(12, 2)
   adminFee                    Decimal?          @db.Decimal(12, 2)
   netTripPayoutBeforeReimb    Decimal?          @db.Decimal(12, 2)
-  // Reimbursables
   tollAmount                  Decimal?          @db.Decimal(12, 2)
   gasAmount                   Decimal?          @db.Decimal(12, 2)
   parkingAmount               Decimal?          @db.Decimal(12, 2)
   reimbursableStatus          ReimbursableStatus? @default(DRAFT)
   approvedReimbursableAmount  Decimal?          @db.Decimal(12, 2)
-  // Ledgers
   billingStatus               BillingStatus?    @default(READY_TO_BILL)
   billingLedgerDate           DateTime?
   payoutStatus                PayoutStatus?     @default(READY_FOR_PAYOUT)
   payoutLedgerDate            DateTime?
   payoutDueDate               DateTime?
-  // Override flags
   overrideExpiredDeadline     Boolean           @default(false)
   overrideRequestId           String?
-  // Client AR: dispute when we have trip but not in client's reverse billing
   billingDispute              Boolean           @default(false)
   billingDisputeReason        String?
   createdAt                   DateTime          @default(now())
@@ -710,10 +793,6 @@ model TripFinance {
 
   @@map("trip_finance")
 }
-
-// ============================================
-// PAYOUT BATCHES & APPROVALS
-// ============================================
 
 enum PayoutBatchStatus {
   DRAFT
@@ -728,12 +807,12 @@ model PayoutBatch {
   tenantId              String
   operatorId            String
   clientAccountId       String
-  periodStart           DateTime            // derived from included trips (min runsheet date)
-  periodEnd             DateTime            // derived from included trips (max runsheet date)
-  targetReleaseDate     DateTime?           // target date for this batch (e.g. Monday Mar 2, 2026); required for new batches
+  periodStart           DateTime
+  periodEnd             DateTime
+  targetReleaseDate     DateTime?
   status                PayoutBatchStatus   @default(DRAFT)
-  held                  Boolean             @default(false) // if true, payout not released even after CFO approval
-  releasedAt            DateTime?          // when batch was actually released (hold lifted)
+  held                  Boolean             @default(false)
+  releasedAt            DateTime?
   totalTripPayout       Decimal             @db.Decimal(12, 2) @default(0)
   totalAdminFee         Decimal             @db.Decimal(12, 2) @default(0)
   totalReimbursables    Decimal             @db.Decimal(12, 2) @default(0)
@@ -749,7 +828,7 @@ model PayoutBatch {
 
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   operator      Operator          @relation(fields: [operatorId], references: [id])
-  clientAccount ClientAccount     @relation(fields: [clientAccountId], references: [id])
+  clientAccount Client            @relation(fields: [clientAccountId], references: [id])
   trips         PayoutBatchTrip[]
   cashbondLedger DriverCashbondLedger[]
   exclusions    PayoutBatchExclusion[]
@@ -761,7 +840,7 @@ model PayoutBatchExclusion {
   id            String   @id @default(cuid())
   payoutBatchId String
   tripId        String
-  reason        String   // mandatory remark for not including this eligible trip in the batch
+  reason        String
   createdAt     DateTime @default(now())
 
   payoutBatch PayoutBatch @relation(fields: [payoutBatchId], references: [id], onDelete: Cascade)
@@ -775,7 +854,6 @@ model PayoutBatchTrip {
   id                    String   @id @default(cuid())
   payoutBatchId         String
   tripId                String
-  // Snapshot fields
   snapshotTripPayout    Decimal  @db.Decimal(12, 2)
   snapshotAdminFee      Decimal  @db.Decimal(12, 2)
   snapshotReimbursables Decimal  @db.Decimal(12, 2)
@@ -806,12 +884,12 @@ model ArBatch {
   amountPaidFromClient      Decimal?  @db.Decimal(12, 2)
   checkPickupDate           DateTime?
   depositedAt               DateTime?
-  status                    String    @default("REVERSE_BILLING_RECEIVED") // REVERSE_BILLING_RECEIVED | INVOICED | PAYMENT_LIST_RECEIVED | DEPOSITED
+  status                    String    @default("REVERSE_BILLING_RECEIVED")
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
   tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientAccount ClientAccount        @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
+  clientAccount Client               @relation(fields: [clientAccountId], references: [id], onDelete: Cascade)
   trips         ArBatchTrip[]
   unmatchedLines ArBatchUnmatchedLine[]
 
@@ -835,7 +913,7 @@ model ArBatchTrip {
 model ArBatchUnmatchedLine {
   id                  String   @id @default(cuid())
   arBatchId           String
-  clientProvidedRef   String   // client_trip_ref from CSV
+  clientProvidedRef   String
   ourInternalRef      String?
   serviceCategoryCode String?
   runsheetDate        DateTime?
@@ -888,10 +966,6 @@ model DriverCashbondLedger {
   @@map("driver_cashbond_ledger")
 }
 
-// ============================================
-// PAYOUT OVERRIDE REQUESTS
-// ============================================
-
 enum OverrideRequestStatus {
   PENDING
   APPROVED
@@ -916,10 +990,6 @@ model PayoutOverrideRequest {
 
   @@map("payout_override_requests")
 }
-
-// ============================================
-// NOTIFICATIONS
-// ============================================
 
 enum NotificationType {
   TRIP_ASSIGNED
@@ -948,7 +1018,7 @@ model Notification {
   type       NotificationType
   title      String
   body       String
-  payloadJson Json? // { tripId, incidentId, etc. }
+  payloadJson Json?
   status     NotificationStatus @default(SENT)
   createdAt  DateTime          @default(now())
   readAt     DateTime?
@@ -958,18 +1028,14 @@ model Notification {
   @@map("notifications")
 }
 
-// ============================================
-// AUDIT LOGS
-// ============================================
-
 model AuditLog {
   id          String   @id @default(cuid())
   tenantId    String
   userId      String
-  action      String // "CREATE", "UPDATE", "DELETE", "VIEW"
-  entityType  String // "OPERATOR", "TRIP", "POD_VERIFY", etc.
+  action      String
+  entityType  String
   entityId    String?
-  changesJson Json? // before/after snapshot
+  changesJson Json?
   ipAddress   String?
   userAgent   String?
   createdAt   DateTime @default(now())

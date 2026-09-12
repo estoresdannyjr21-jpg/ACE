@@ -23,6 +23,8 @@ const operator_module_1 = require("./operator/operator.module");
 const driver_module_1 = require("./driver/driver.module");
 const audit_module_1 = require("./audit/audit.module");
 const upload_module_1 = require("./upload/upload.module");
+const master_data_module_1 = require("./master-data/master-data.module");
+const trip_requirements_module_1 = require("./trip-requirements/trip-requirements.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -36,6 +38,8 @@ exports.AppModule = AppModule = __decorate([
             schedule_1.ScheduleModule.forRoot(),
             prisma_module_1.PrismaModule,
             auth_module_1.AuthModule,
+            master_data_module_1.MasterDataModule,
+            trip_requirements_module_1.TripRequirementsModule,
             fleet_acquisition_module_1.FleetAcquisitionModule,
             dispatch_module_1.DispatchModule,
             finance_module_1.FinanceModule,

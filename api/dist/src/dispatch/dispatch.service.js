@@ -19,27 +19,59 @@ const notifications_service_1 = require("../notifications/notifications.service"
 const incidents_service_1 = require("../incidents/incidents.service");
 const barcode_cover_service_1 = require("../barcode-cover/barcode-cover.service");
 const rates_service_1 = require("../rates/rates.service");
+const trip_requirements_service_1 = require("../trip-requirements/trip-requirements.service");
+const client_2 = require("@prisma/client");
 const RATE_EXPIRY_WARNING_DAYS = 7;
 const SEARCH_LIMIT = 10;
 let DispatchService = class DispatchService {
-    constructor(prisma, audit, notifications, incidents, barcodeCover, ratesService) {
+    constructor(prisma, audit, notifications, incidents, barcodeCover, ratesService, tripRequirements) {
         this.prisma = prisma;
         this.audit = audit;
         this.notifications = notifications;
         this.incidents = incidents;
         this.barcodeCover = barcodeCover;
         this.ratesService = ratesService;
+        this.tripRequirements = tripRequirements;
+    }
+    async getTripRequirements(tenantId, tripId) {
+        return this.tripRequirements.getStatus({ tenantId, tripId });
+    }
+    async fulfillTripRequirementsAsCoordinator(params) {
+        return this.tripRequirements.fulfill({
+            ...params,
+            source: client_2.TripCompletionSource.COORDINATOR,
+        });
+    }
+    async completeTripAsCoordinator(params) {
+        return this.tripRequirements.complete({
+            ...params,
+            source: client_2.TripCompletionSource.COORDINATOR,
+        });
+    }
+    async forceCompleteTrip(params) {
+        return this.tripRequirements.forceComplete(params);
     }
     async getLookups(tenantId) {
-        const clients = await this.prisma.clientAccount.findMany({
+        const clients = await this.prisma.client.findMany({
             where: { tenantId, status: 'ACTIVE' },
             select: {
                 id: true,
                 name: true,
                 code: true,
-                serviceCategories: {
+                serviceSegments: {
                     where: { status: 'ACTIVE' },
                     select: { id: true, name: true, code: true },
+                    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+                },
+                serviceCategories: {
+                    where: { status: 'ACTIVE' },
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        serviceSegmentId: true,
+                        serviceSegment: { select: { id: true, code: true, name: true } },
+                    },
                     orderBy: { name: 'asc' },
                 },
             },
@@ -147,11 +179,12 @@ let DispatchService = class DispatchService {
             throw new common_1.BadRequestException('Vehicle must be assigned to the same operator as the driver');
         }
         const internalRef = `TR-${Date.now()}-${(0, uuid_1.v4)().substring(0, 8).toUpperCase()}`;
-        const serviceCategory = await this.prisma.serviceCategory.findUnique({
-            where: { id: dto.serviceCategoryId },
+        const serviceCategory = await this.prisma.serviceCategory.findFirst({
+            where: { id: dto.serviceCategoryId, clientAccountId: dto.clientAccountId },
+            include: { serviceSegment: { select: { code: true } } },
         });
         if (!serviceCategory) {
-            throw new common_1.NotFoundException('Service category not found');
+            throw new common_1.NotFoundException('Service category not found for this client');
         }
         const runsheetDate = new Date(dto.runsheetDate);
         const activeRate = await this.ratesService.getActiveRateForTrip(tenantId, dto.clientAccountId, dto.serviceCategoryId, dto.originArea, dto.destinationArea, runsheetDate);
@@ -163,7 +196,7 @@ let DispatchService = class DispatchService {
                 tenantId,
                 clientAccountId: dto.clientAccountId,
                 serviceCategoryId: dto.serviceCategoryId,
-                segmentType: serviceCategory.segmentType,
+                segmentType: serviceCategory.serviceSegment.code,
                 internalRef,
                 externalRef: dto.externalRef,
                 requestDeliveryDate: dto.requestDeliveryDate ? new Date(dto.requestDeliveryDate) : null,
@@ -892,6 +925,7 @@ exports.DispatchService = DispatchService = __decorate([
         notifications_service_1.NotificationsService,
         incidents_service_1.IncidentsService,
         barcode_cover_service_1.BarcodeCoverService,
-        rates_service_1.RatesService])
+        rates_service_1.RatesService,
+        trip_requirements_service_1.TripRequirementsService])
 ], DispatchService);
 //# sourceMappingURL=dispatch.service.js.map

@@ -22,7 +22,10 @@ __decorate([
     __metadata("design:type", String)
 ], GetArBatchesQueryDto.prototype, "clientAccountId", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ description: 'Filter by service segment', enum: ['FM_ONCALL', 'FM_WETLEASE', 'MFM_ONCALL'] }),
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Filter by service segment code registered under the client',
+        example: 'FM_ONCALL',
+    }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)

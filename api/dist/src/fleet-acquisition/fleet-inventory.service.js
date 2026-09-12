@@ -17,11 +17,11 @@ let FleetInventoryService = class FleetInventoryService {
         this.prisma = prisma;
     }
     async create(tenantId, dto) {
-        const client = await this.prisma.clientAccount.findFirst({
+        const client = await this.prisma.client.findFirst({
             where: { id: dto.clientAccountId, tenantId },
         });
         if (!client) {
-            throw new common_1.NotFoundException('Client account not found');
+            throw new common_1.NotFoundException('Client not found');
         }
         const vehicle = await this.prisma.vehicle.findFirst({
             where: { id: dto.vehicleId, tenantId },

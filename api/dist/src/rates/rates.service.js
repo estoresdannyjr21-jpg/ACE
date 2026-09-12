@@ -9,20 +9,12 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RatesService = exports.WETLEASE_CATEGORY_CODES = void 0;
+exports.RatesService = void 0;
 exports.utcCalendarDayBounds = utcCalendarDayBounds;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../common/prisma/prisma.service");
 const audit_service_1 = require("../audit/audit.service");
 const client_1 = require("@prisma/client");
-exports.WETLEASE_CATEGORY_CODES = new Set([
-    'SPX_FM_4WCV_WETLEASE',
-    'SPX_FM_6WCV_WETLEASE',
-]);
-const WETLEASE_FIRST_TRIP_FALLBACK = {
-    SPX_FM_4WCV_WETLEASE: { client: 4100.0, subcontractor: 3100.0 },
-    SPX_FM_6WCV_WETLEASE: { client: 4333.33, subcontractor: 3333.33 },
-};
 function utcCalendarDayBounds(d) {
     const y = d.getUTCFullYear();
     const mObj = d.getUTCMonth();
@@ -36,22 +28,29 @@ let RatesService = class RatesService {
     constructor(prisma, audit) {
         this.prisma = prisma;
         this.audit = audit;
-        this.SEGMENT_TO_CATEGORY_CODES = {
-            FM_ONCALL: ['SPX_FM_4W_ONCALL', 'SPX_FM_6WCV_ONCALL', 'SPX_FM_10W_ONCALL'],
-            FM_WETLEASE: ['SPX_FM_4WCV_WETLEASE', 'SPX_FM_6WCV_WETLEASE'],
-            MFM_ONCALL: ['SPX_MEGA_FM_6W', 'SPX_MEGA_FM_10W', 'SPX_MFM_SHUNTING_6W'],
-        };
     }
     async getLookups(tenantId) {
-        const clients = await this.prisma.clientAccount.findMany({
+        const clients = await this.prisma.client.findMany({
             where: { tenantId, status: 'ACTIVE' },
             select: {
                 id: true,
                 name: true,
                 code: true,
-                serviceCategories: {
+                serviceSegments: {
                     where: { status: 'ACTIVE' },
                     select: { id: true, name: true, code: true },
+                    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+                },
+                serviceCategories: {
+                    where: { status: 'ACTIVE' },
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        serviceSegmentId: true,
+                        firstTripOnlyPayout: true,
+                        serviceSegment: { select: { id: true, code: true, name: true } },
+                    },
                     orderBy: { name: 'asc' },
                 },
             },
@@ -219,8 +218,12 @@ let RatesService = class RatesService {
         });
         return rate ?? null;
     }
-    isWetleaseCategoryCode(code) {
-        return !!code && exports.WETLEASE_CATEGORY_CODES.has(code);
+    async isFirstTripOnlyPayoutCategory(serviceCategoryId) {
+        const cat = await this.prisma.serviceCategory.findUnique({
+            where: { id: serviceCategoryId },
+            select: { firstTripOnlyPayout: true },
+        });
+        return cat?.firstTripOnlyPayout ?? false;
     }
     async resolveWetleaseFirstTripPayoutAmount(tenantId, clientAccountId, serviceCategoryId, asOfDate) {
         const row = await this.prisma.wetleaseFirstTripRate.findFirst({
@@ -236,16 +239,7 @@ let RatesService = class RatesService {
         if (row) {
             return Number(row.firstTripPayoutVatable);
         }
-        const cat = await this.prisma.serviceCategory.findFirst({
-            where: { id: serviceCategoryId, clientAccountId },
-            select: { code: true },
-        });
-        const code = cat?.code;
-        const fb = code ? WETLEASE_FIRST_TRIP_FALLBACK[code] : undefined;
-        if (fb) {
-            return fb.subcontractor;
-        }
-        throw new common_1.BadRequestException('No wetlease first-trip rate row for this category and date. Add one under GET /rates/wetlease-first-trip or seed the table.');
+        throw new common_1.BadRequestException('No first-trip rate row for this category and date. Add one via POST /rates/wetlease-first-trip.');
     }
     async resolveWetleaseFirstTripClientBillAmount(tenantId, clientAccountId, serviceCategoryId, asOfDate) {
         const row = await this.prisma.wetleaseFirstTripRate.findFirst({
@@ -261,16 +255,7 @@ let RatesService = class RatesService {
         if (row?.firstTripClientBillAmount != null) {
             return Number(row.firstTripClientBillAmount);
         }
-        const cat = await this.prisma.serviceCategory.findFirst({
-            where: { id: serviceCategoryId, clientAccountId },
-            select: { code: true },
-        });
-        const code = cat?.code;
-        const fb = code ? WETLEASE_FIRST_TRIP_FALLBACK[code] : undefined;
-        if (fb) {
-            return fb.client;
-        }
-        throw new common_1.BadRequestException('No wetlease client bill amount for this category and date. Set firstTripClientBillAmount on the wetlease rate row.');
+        throw new common_1.BadRequestException('No first-trip client bill amount for this category and date. Set firstTripClientBillAmount on the rate row.');
     }
     async listWetleaseFirstTripRates(tenantId, query) {
         return this.prisma.wetleaseFirstTripRate.findMany({
@@ -392,19 +377,19 @@ let RatesService = class RatesService {
     async assertWetleaseCategoryOrThrow(tenantId, serviceCategoryId) {
         const cat = await this.prisma.serviceCategory.findFirst({
             where: { id: serviceCategoryId, clientAccount: { tenantId } },
-            select: { code: true },
+            select: { code: true, firstTripOnlyPayout: true },
         });
-        if (!cat?.code || !exports.WETLEASE_CATEGORY_CODES.has(cat.code)) {
-            throw new common_1.BadRequestException('Wetlease first-trip rates apply only to SPX_FM_4WCV_WETLEASE or SPX_FM_6WCV_WETLEASE categories');
+        if (!cat?.firstTripOnlyPayout) {
+            throw new common_1.BadRequestException(`First-trip rates apply only to categories configured with firstTripOnlyPayout (category "${cat?.code ?? serviceCategoryId}" is not)`);
         }
     }
     async validateClientAndCategory(tenantId, clientAccountId, serviceCategoryId) {
-        const client = await this.prisma.clientAccount.findFirst({
+        const client = await this.prisma.client.findFirst({
             where: { id: clientAccountId, tenantId },
             include: { serviceCategories: { where: { id: serviceCategoryId } } },
         });
         if (!client) {
-            throw new common_1.BadRequestException('Client account not found');
+            throw new common_1.BadRequestException('Client not registered in master data');
         }
         if (client.serviceCategories.length === 0) {
             throw new common_1.BadRequestException('Service category not found or not linked to this client');
@@ -504,16 +489,6 @@ let RatesService = class RatesService {
                 rowErrors.push('currency is required');
             if (!effFromStr)
                 rowErrors.push('effective_from is required');
-            const allowedSegments = Object.keys(this.SEGMENT_TO_CATEGORY_CODES);
-            if (serviceSegment && !allowedSegments.includes(serviceSegment)) {
-                rowErrors.push(`service_segment must be one of ${allowedSegments.join(', ')}; got "${serviceSegment}"`);
-            }
-            if (serviceSegment &&
-                serviceCategoryCode &&
-                this.SEGMENT_TO_CATEGORY_CODES[serviceSegment] &&
-                !this.SEGMENT_TO_CATEGORY_CODES[serviceSegment].includes(serviceCategoryCode)) {
-                rowErrors.push(`service_category_code "${serviceCategoryCode}" does not belong to segment "${serviceSegment}"`);
-            }
             let clientRate = 0;
             let subcontractorRate = 0;
             if (hasSplitRates) {
@@ -580,25 +555,41 @@ let RatesService = class RatesService {
         const endOfTime = new Date('9999-12-31');
         const trxFn = async (tx) => {
             for (const row of parsed) {
-                const client = await tx.clientAccount.findFirst({
+                const client = await tx.client.findFirst({
                     where: { tenantId: params.tenantId, code: row.clientCode, status: 'ACTIVE' },
                     select: { id: true },
                 });
                 if (!client) {
                     errors.push({
                         rowNumber: row.rowNumber,
-                        message: `Unknown or inactive client_code "${row.clientCode}"`,
+                        message: `client_code "${row.clientCode}" is not a registered active client. Create it in master data (POST /master-data/clients) before uploading rates.`,
+                    });
+                    continue;
+                }
+                const segment = await tx.serviceSegment.findFirst({
+                    where: { clientAccountId: client.id, code: row.serviceSegment, status: 'ACTIVE' },
+                    select: { id: true },
+                });
+                if (!segment) {
+                    errors.push({
+                        rowNumber: row.rowNumber,
+                        message: `service_segment "${row.serviceSegment}" is not a registered active segment for client "${row.clientCode}"`,
                     });
                     continue;
                 }
                 const category = await tx.serviceCategory.findFirst({
-                    where: { clientAccountId: client.id, code: row.serviceCategoryCode, status: 'ACTIVE' },
+                    where: {
+                        clientAccountId: client.id,
+                        serviceSegmentId: segment.id,
+                        code: row.serviceCategoryCode,
+                        status: 'ACTIVE',
+                    },
                     select: { id: true },
                 });
                 if (!category) {
                     errors.push({
                         rowNumber: row.rowNumber,
-                        message: `Unknown or inactive service_category_code "${row.serviceCategoryCode}" for client "${row.clientCode}"`,
+                        message: `service_category_code "${row.serviceCategoryCode}" is not a registered active category under segment "${row.serviceSegment}" for client "${row.clientCode}"`,
                     });
                     continue;
                 }
@@ -743,6 +734,7 @@ let RatesService = class RatesService {
             }
         }
         else {
+            await trxFn(this.prisma);
         }
         return {
             mode: params.commit ? 'commit' : 'preview',

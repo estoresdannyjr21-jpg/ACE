@@ -17,6 +17,11 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { BarcodeCoverService } from '../barcode-cover/barcode-cover.service';
 import { RatesService } from '../rates/rates.service';
+import {
+  FulfillRequirementItem,
+  TripRequirementsService,
+} from '../trip-requirements/trip-requirements.service';
+import { TripCompletionSource } from '@prisma/client';
 
 const RATE_EXPIRY_WARNING_DAYS = 7;
 const SEARCH_LIMIT = 10;
@@ -30,18 +35,66 @@ export class DispatchService {
     private incidents: IncidentsService,
     private barcodeCover: BarcodeCoverService,
     private ratesService: RatesService,
+    private tripRequirements: TripRequirementsService,
   ) {}
 
+  /** Client trip requirements checklist for a trip (coordinator view). */
+  async getTripRequirements(tenantId: string, tripId: string) {
+    return this.tripRequirements.getStatus({ tenantId, tripId });
+  }
+
+  /** Coordinator satisfies requirements on behalf of the driver. */
+  async fulfillTripRequirementsAsCoordinator(params: {
+    userId: string;
+    tenantId: string;
+    tripId: string;
+    items: FulfillRequirementItem[];
+  }) {
+    return this.tripRequirements.fulfill({
+      ...params,
+      source: TripCompletionSource.COORDINATOR,
+    });
+  }
+
+  /** Coordinator completes the trip; requirements are still enforced. */
+  async completeTripAsCoordinator(params: { userId: string; tenantId: string; tripId: string }) {
+    return this.tripRequirements.complete({
+      ...params,
+      source: TripCompletionSource.COORDINATOR,
+    });
+  }
+
+  /** Admin-only override that bypasses requirement validation. */
+  async forceCompleteTrip(params: {
+    userId: string;
+    tenantId: string;
+    tripId: string;
+    reason: string;
+  }) {
+    return this.tripRequirements.forceComplete(params);
+  }
+
   async getLookups(tenantId: string) {
-    const clients = await this.prisma.clientAccount.findMany({
+    const clients = await this.prisma.client.findMany({
       where: { tenantId, status: 'ACTIVE' },
       select: {
         id: true,
         name: true,
         code: true,
-        serviceCategories: {
+        serviceSegments: {
           where: { status: 'ACTIVE' },
           select: { id: true, name: true, code: true },
+          orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+        },
+        serviceCategories: {
+          where: { status: 'ACTIVE' },
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            serviceSegmentId: true,
+            serviceSegment: { select: { id: true, code: true, name: true } },
+          },
           orderBy: { name: 'asc' },
         },
       },
@@ -171,13 +224,14 @@ export class DispatchService {
     // Generate internal reference
     const internalRef = `TR-${Date.now()}-${uuidv4().substring(0, 8).toUpperCase()}`;
 
-    // Get service category to determine segment type
-    const serviceCategory = await this.prisma.serviceCategory.findUnique({
-      where: { id: dto.serviceCategoryId },
+    // Service category carries the segment (master data) that the trip snapshots
+    const serviceCategory = await this.prisma.serviceCategory.findFirst({
+      where: { id: dto.serviceCategoryId, clientAccountId: dto.clientAccountId },
+      include: { serviceSegment: { select: { code: true } } },
     });
 
     if (!serviceCategory) {
-      throw new NotFoundException('Service category not found');
+      throw new NotFoundException('Service category not found for this client');
     }
 
     const runsheetDate = new Date(dto.runsheetDate);
@@ -200,7 +254,7 @@ export class DispatchService {
         tenantId,
         clientAccountId: dto.clientAccountId,
         serviceCategoryId: dto.serviceCategoryId,
-        segmentType: serviceCategory.segmentType,
+        segmentType: serviceCategory.serviceSegment.code,
         internalRef,
         externalRef: dto.externalRef,
         requestDeliveryDate: dto.requestDeliveryDate ? new Date(dto.requestDeliveryDate) : null,

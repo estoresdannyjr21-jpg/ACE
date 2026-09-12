@@ -8,7 +8,7 @@ This document verifies the current codebase against the **exact** Phase 1 Consol
 
 | Blueprint item | Status | Notes |
 |----------------|--------|--------|
-| Client: Shopee Express (SPX) only | **Done** | Seed + schema support single client; SPX account and 8 categories seeded |
+| Client: Shopee Express (SPX) only | **Done (now multi-client)** | SPX is seeded **as data**, not code: `Client` → `ServiceSegment` → `ServiceCategory` master data with CRUD under `/master-data`. New clients onboard without code changes (see §20) |
 | Auth + RBAC + Audit Logs | **Done** | JWT auth, RolesGuard, AuditService + GET /audit-logs, logging on POD verify/reject and rate create |
 | Fleet Acquisition (operators/drivers/vehicles/docs/assignment history) | **Done** | CRUD + assignments on create; driver/vehicle docs in schema |
 | Operator–Driver–Vehicle assignment history + fleet inventory tagging | **Partial** | Assignment history done; fleet_inventory table exists but **no API** for tagging (PRIMARY/SECONDARY, effective dates) |
@@ -241,3 +241,33 @@ Auth, RBAC roles in schema and on endpoints, audit logging (foundation + some ev
 14. **Storage & masking:** Signed URLs for documents; bank-detail masking in API responses.
 
 If you want to prioritize, the blueprint’s build order and “Finance processing” section suggest fixing **finance computation formula + invoice type**, **wetlease tier**, **cashbond**, **override request API**, and **payslip** next, then **barcode PDF**, **notifications**, and **dashboards**.
+
+---
+
+## 20) Master Data Architecture (operational rules as data)
+
+Replaces the hardcoded SPX rules. Migration: `20260821060000_master_data_dynamic_clients`.
+
+| Area | Where the rule lives now | Notes |
+|------|--------------------------|-------|
+| Clients | `Client` (`client_accounts`), unique `code` per tenant | `GET/POST/PATCH /master-data/clients` |
+| Service segments | `ServiceSegment`, unique `code` per client | Replaces the hardcoded `FM_ONCALL / FM_WETLEASE / MFM_ONCALL` maps in Rates and Finance |
+| Service categories | `ServiceCategory` under a segment, unique `code` per client | Replaces `ClientServiceConfig` (dropped) |
+| Payout cycle rules | `ServiceCategory.payoutTermsBusinessDays`, `docSubmissionDay`, `cycleStartDay`, `excludeWeekends`, `subcontractorInvoiceDeadlineDays`, `callTimeGraceMinutes` | Used by `markFinanceDocReceived` and payout eligibility |
+| Financial rules | `ServiceCategory.vatRate`, `adminFeePercent`, `withholdingPercent` | `computeTripFinance` no longer uses `VAT_RATE / ADMIN_FEE_PCT / WITHHOLDING_PCT` constants |
+| Wetlease behaviour | `ServiceCategory.firstTripOnlyPayout` + effective-dated `WetleaseFirstTripRate` | Replaces the `WETLEASE_CATEGORY_CODES` set and the hardcoded amount fallbacks (now a hard error if no rate row) |
+| Trip requirements | `ClientTripRequirement` (DOCUMENT or FIELD, optionally scoped to one category) | e.g. `POD_IMAGE`, `WAYBILL_NUMBER`, `SEAL_NUMBER`; `TripRequirementFulfillment` records who satisfied what |
+
+**Strict upload FK:** rate CSV import and AR reverse-billing import reject rows whose `client_code`, `service_segment` or `service_category_code` is not registered (and the category must sit under the given segment). Rate import preview now runs the same validation as commit.
+
+**Trip completion by role**
+
+| Role | Endpoint | Behaviour |
+|------|----------|-----------|
+| Driver | `GET/POST /driver/trips/:id/requirements`, `POST /driver/trips/:id/complete` | Own accepted trips only; completion returns 400 with the `missing` list until every required item is satisfied. No bypass |
+| Coordinator | `GET/POST /dispatch/trips/:id/requirements`, `POST /dispatch/trips/:id/complete` | Uploads documents / details on the driver's behalf, then completes; requirements still enforced |
+| Admin | `POST /dispatch/trips/:id/force-complete` | `SUPER_ADMIN`/`ADMIN` only, requires a reason; bypasses validation and records `completionSource=ADMIN_FORCE` plus the bypassed requirement codes in the audit log |
+
+Completing a trip stamps `completedAt`, `completedByUserId`, `completionSource` and (for overrides) `forceCompletedReason`. A fulfilled `POD_RUNSHEET` document also creates a `TripDocument` and moves POD status to `POD_UPLOADED_PENDING_REVIEW`.
+
+**Admin UI:** *Admin / Settings → Master Data* (`web/src/pages/MasterDataPage.tsx`) onboards a client end to end without code changes: create/edit clients, their service segments, and their service categories including payout terms (business days, doc submission day, cycle start day, exclude weekends, invoice deadline, call-time grace) and financial flags (VAT rate, admin fee, withholding, first-trip-only payout). Codes are entered on create only and shown read-only afterwards, since uploads and trips reference them. Trip requirements are listed read-only per client; write access follows the API's `WRITE_ROLES` (`SUPER_ADMIN`, `ADMIN`, `MANAGER`) and other read roles see the tables without action buttons.

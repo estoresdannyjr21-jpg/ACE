@@ -24,7 +24,7 @@ async function bootstrap() {
   // Swagger API documentation
   const config = new DocumentBuilder()
     .setTitle('Ace Truckers Corp ERP API')
-    .setDescription('Phase 1: Shopee Express (SPX)')
+    .setDescription('Multi-client: clients, segments, categories and trip requirements are master data')
     .setVersion('1.0')
     .addBearerAuth()
     .build();

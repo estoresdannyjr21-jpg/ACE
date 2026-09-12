@@ -4,6 +4,7 @@ import { DeclineTripDto, GetMyTripsQueryDto } from './dto/trips.dto';
 import { CreateTripEventDto } from './dto/events.dto';
 import { UploadPodDto } from './dto/pod.dto';
 import { UploadReimbursableDocDto } from './dto/reimbursable-doc.dto';
+import { FulfillTripRequirementsDto } from '../trip-requirements/dto';
 export declare class DriverController {
     private readonly service;
     constructor(service: DriverService);
@@ -47,7 +48,17 @@ export declare class DriverController {
             status: string;
             code: string;
             clientAccountId: string;
-            segmentType: string;
+            serviceSegmentId: string;
+            payoutTermsBusinessDays: number;
+            docSubmissionDay: string;
+            cycleStartDay: string;
+            excludeWeekends: boolean;
+            subcontractorInvoiceDeadlineDays: number;
+            callTimeGraceMinutes: number;
+            vatRate: import("@prisma/client/runtime/library").Decimal;
+            adminFeePercent: import("@prisma/client/runtime/library").Decimal;
+            withholdingPercent: import("@prisma/client/runtime/library").Decimal;
+            firstTripOnlyPayout: boolean;
         };
         assignedVehicle: {
             id: string;
@@ -75,9 +86,9 @@ export declare class DriverController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -102,6 +113,10 @@ export declare class DriverController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     })[]>;
@@ -123,14 +138,24 @@ export declare class DriverController {
             status: string;
             code: string;
             clientAccountId: string;
-            segmentType: string;
+            serviceSegmentId: string;
+            payoutTermsBusinessDays: number;
+            docSubmissionDay: string;
+            cycleStartDay: string;
+            excludeWeekends: boolean;
+            subcontractorInvoiceDeadlineDays: number;
+            callTimeGraceMinutes: number;
+            vatRate: import("@prisma/client/runtime/library").Decimal;
+            adminFeePercent: import("@prisma/client/runtime/library").Decimal;
+            withholdingPercent: import("@prisma/client/runtime/library").Decimal;
+            firstTripOnlyPayout: boolean;
         };
         documents: {
             id: string;
+            docType: import(".prisma/client").$Enums.DocumentType;
             fileKey: string;
             tripId: string;
             uploadedAt: Date;
-            docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
         }[];
         assignedVehicle: {
@@ -179,9 +204,9 @@ export declare class DriverController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -206,6 +231,10 @@ export declare class DriverController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     }>;
@@ -215,9 +244,9 @@ export declare class DriverController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -242,6 +271,10 @@ export declare class DriverController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     }>;
@@ -251,9 +284,9 @@ export declare class DriverController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -278,6 +311,10 @@ export declare class DriverController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     }>;
@@ -307,9 +344,9 @@ export declare class DriverController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -334,15 +371,153 @@ export declare class DriverController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
+        createdByUserId: string;
+        clientTripRef: string | null;
+    }>;
+    getMyTripRequirements(req: any, id: string): Promise<{
+        tripId: string;
+        internalRef: string;
+        clientAccountId: string;
+        serviceCategoryCode: string;
+        highLevelTripStatus: import(".prisma/client").$Enums.HighLevelTripStatus;
+        completedAt: Date;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource;
+        requirements: {
+            id: string;
+            code: string;
+            label: string;
+            kind: import(".prisma/client").$Enums.TripRequirementKind;
+            docType: import(".prisma/client").$Enums.DocumentType;
+            required: boolean;
+            helpText: string;
+            fulfilled: boolean;
+            value: string;
+            fileKey: string;
+            fulfilledAt: Date;
+            fulfilledBy: string;
+            source: import(".prisma/client").$Enums.TripCompletionSource;
+        }[];
+        missing: {
+            code: string;
+            label: string;
+            kind: import(".prisma/client").$Enums.TripRequirementKind;
+        }[];
+        canComplete: boolean;
+    }>;
+    submitMyTripRequirements(req: any, id: string, dto: FulfillTripRequirementsDto): Promise<{
+        tripId: string;
+        internalRef: string;
+        clientAccountId: string;
+        serviceCategoryCode: string;
+        highLevelTripStatus: import(".prisma/client").$Enums.HighLevelTripStatus;
+        completedAt: Date;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource;
+        requirements: {
+            id: string;
+            code: string;
+            label: string;
+            kind: import(".prisma/client").$Enums.TripRequirementKind;
+            docType: import(".prisma/client").$Enums.DocumentType;
+            required: boolean;
+            helpText: string;
+            fulfilled: boolean;
+            value: string;
+            fileKey: string;
+            fulfilledAt: Date;
+            fulfilledBy: string;
+            source: import(".prisma/client").$Enums.TripCompletionSource;
+        }[];
+        missing: {
+            code: string;
+            label: string;
+            kind: import(".prisma/client").$Enums.TripRequirementKind;
+        }[];
+        canComplete: boolean;
+    }>;
+    completeMyTrip(req: any, id: string): Promise<{
+        requirementFulfillments: ({
+            requirement: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                status: string;
+                code: string;
+                clientAccountId: string;
+                sortOrder: number;
+                serviceCategoryId: string | null;
+                label: string;
+                kind: import(".prisma/client").$Enums.TripRequirementKind;
+                docType: import(".prisma/client").$Enums.DocumentType | null;
+                required: boolean;
+                helpText: string | null;
+            };
+        } & {
+            id: string;
+            updatedAt: Date;
+            fileKey: string | null;
+            tripId: string;
+            requirementId: string;
+            value: string | null;
+            source: import(".prisma/client").$Enums.TripCompletionSource;
+            fulfilledByUserId: string;
+            fulfilledAt: Date;
+        })[];
+        serviceCategory: {
+            id: string;
+            name: string;
+            code: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        clientAccountId: string;
+        serviceCategoryId: string;
+        vehicleType: string;
+        segmentType: string;
+        internalRef: string;
+        externalRef: string | null;
+        requestDeliveryDate: Date | null;
+        runsheetDate: Date;
+        abStatus: string | null;
+        originArea: string;
+        destinationArea: string;
+        routeCode: string | null;
+        tripOrder: number | null;
+        callTime: Date;
+        assignedDriverId: string | null;
+        assignedVehicleId: string | null;
+        operatorIdAtAssignment: string | null;
+        assignmentStatus: import(".prisma/client").$Enums.AssignmentStatus;
+        assignedAt: Date | null;
+        acceptedAt: Date | null;
+        declinedAt: Date | null;
+        declineReason: string | null;
+        lastDriverEventAt: Date | null;
+        highLevelTripStatus: import(".prisma/client").$Enums.HighLevelTripStatus;
+        podStatus: import(".prisma/client").$Enums.PODStatus;
+        podLastReviewedByUserId: string | null;
+        podLastReviewedAt: Date | null;
+        podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     }>;
     uploadReimbursableDoc(req: any, id: string, dto: UploadReimbursableDocDto): Promise<{
         id: string;
+        docType: import(".prisma/client").$Enums.DocumentType;
         fileKey: string;
         tripId: string;
         uploadedAt: Date;
-        docType: import(".prisma/client").$Enums.DocumentType;
         uploadedByUserId: string | null;
     }>;
 }

@@ -6,6 +6,7 @@ Minimal React app with **Finance** and **Operations** dashboards.
 
 - **Finance:** `GET /finance/lookups`, `GET /finance/dashboard` (with optional filters: date range, client, service category, operator).
 - **Operations:** `GET /dispatch/dashboard/operations`.
+- **Master data** (Admin / Settings → Master Data): `/master-data/clients`, `/master-data/clients/:id/segments`, `/master-data/clients/:id/categories` — create and edit clients, service segments, and service categories with their payout terms and financial flags.
 
 ## Setup
 

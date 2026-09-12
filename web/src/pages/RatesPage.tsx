@@ -79,9 +79,15 @@ export function RatesPage() {
     return lookups?.clients.find((c) => c.id === wlClientAccountId) ?? null;
   }, [lookups, wlClientAccountId]);
 
+  const registeredSegments = useMemo(() => {
+    const codes = (lookups?.clients ?? []).flatMap((c) => c.serviceSegments.map((s) => s.code));
+    return [...new Set(codes)].sort();
+  }, [lookups]);
+
+  // Categories flagged in master data as paying only the first trip of the day
   const wetleaseCategories = useMemo(() => {
     const cats = selectedClient?.serviceCategories ?? [];
-    return cats.filter((c) => c.code === 'SPX_FM_4WCV_WETLEASE' || c.code === 'SPX_FM_6WCV_WETLEASE');
+    return cats.filter((c) => c.firstTripOnlyPayout);
   }, [selectedClient]);
 
   useEffect(() => {
@@ -344,7 +350,13 @@ export function RatesPage() {
           </a>
         </div>
         <p className="page-subtitle page-subtitle--spaced">
-          Required: client_code, service_segment, service_category_code, origin_area_code, destination_area_code, currency, effective_from. Plus either <strong>client_rate</strong> and <strong>subcontractor_rate</strong> (bill to client vs pay subcontractor) or legacy <strong>base_rate</strong> (same value for both). Optional: effective_to. Segments: FM_ONCALL, FM_WETLEASE, MFM_ONCALL. Preview before Commit.
+          Required: client_code, service_segment, service_category_code, origin_area_code, destination_area_code, currency, effective_from. Plus either <strong>client_rate</strong> and <strong>subcontractor_rate</strong> (bill to client vs pay subcontractor) or legacy <strong>base_rate</strong> (same value for both). Optional: effective_to. Preview before Commit.
+        </p>
+        <p className="page-subtitle page-subtitle--spaced">
+          client_code, service_segment and service_category_code must already be registered in master data.
+          {registeredSegments.length > 0 && (
+            <> Registered segments: <strong>{registeredSegments.join(', ')}</strong>.</>
+          )}
         </p>
 
         <div className="form-grid form-grid--import">

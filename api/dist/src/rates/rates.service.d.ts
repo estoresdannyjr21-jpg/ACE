@@ -2,7 +2,6 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateRouteRateDto, UpdateRouteRateDto, GetRouteRatesQueryDto, CreateWetleaseFirstTripRateDto, UpdateWetleaseFirstTripRateDto } from './dto';
 import { Prisma } from '@prisma/client';
-export declare const WETLEASE_CATEGORY_CODES: ReadonlySet<string>;
 export declare function utcCalendarDayBounds(d: Date): {
     dayStart: Date;
     dayEnd: Date;
@@ -11,16 +10,27 @@ export declare class RatesService {
     private prisma;
     private audit;
     constructor(prisma: PrismaService, audit: AuditService);
-    private readonly SEGMENT_TO_CATEGORY_CODES;
     getLookups(tenantId: string): Promise<{
         clients: {
             id: string;
             name: string;
             code: string;
+            serviceSegments: {
+                id: string;
+                name: string;
+                code: string;
+            }[];
             serviceCategories: {
                 id: string;
                 name: string;
                 code: string;
+                serviceSegment: {
+                    id: string;
+                    name: string;
+                    code: string;
+                };
+                serviceSegmentId: string;
+                firstTripOnlyPayout: boolean;
             }[];
         }[];
     }>;
@@ -142,7 +152,7 @@ export declare class RatesService {
         billRateAmount: Prisma.Decimal;
         tripPayoutRateVatable: Prisma.Decimal;
     }>;
-    isWetleaseCategoryCode(code: string | null | undefined): boolean;
+    isFirstTripOnlyPayoutCategory(serviceCategoryId: string): Promise<boolean>;
     resolveWetleaseFirstTripPayoutAmount(tenantId: string, clientAccountId: string, serviceCategoryId: string, asOfDate: Date): Promise<number>;
     resolveWetleaseFirstTripClientBillAmount(tenantId: string, clientAccountId: string, serviceCategoryId: string, asOfDate: Date): Promise<number>;
     listWetleaseFirstTripRates(tenantId: string, query: {

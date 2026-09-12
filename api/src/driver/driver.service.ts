@@ -9,15 +9,74 @@ import {
   EventType,
   PODStatus,
   DocumentType,
+  TripCompletionSource,
 } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  FulfillRequirementItem,
+  TripRequirementsService,
+} from '../trip-requirements/trip-requirements.service';
 
 @Injectable()
 export class DriverService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private tripRequirements: TripRequirementsService,
   ) {}
+
+  /** What this client requires before the driver may complete the trip. */
+  async getMyTripRequirements(params: {
+    tenantId: string;
+    driverId?: string | null;
+    tripId: string;
+  }) {
+    return this.tripRequirements.getStatus({
+      tenantId: params.tenantId,
+      tripId: params.tripId,
+      driverId: this.requireDriverId(params.driverId),
+    });
+  }
+
+  async submitMyTripRequirements(params: {
+    userId: string;
+    tenantId: string;
+    driverId?: string | null;
+    tripId: string;
+    items: FulfillRequirementItem[];
+  }) {
+    return this.tripRequirements.fulfill({
+      userId: params.userId,
+      tenantId: params.tenantId,
+      tripId: params.tripId,
+      driverId: this.requireDriverId(params.driverId),
+      source: TripCompletionSource.DRIVER,
+      items: params.items,
+    });
+  }
+
+  /** Strict: every active required item must be satisfied. Drivers have no override. */
+  async completeMyTrip(params: {
+    userId: string;
+    tenantId: string;
+    driverId?: string | null;
+    tripId: string;
+  }) {
+    return this.tripRequirements.complete({
+      userId: params.userId,
+      tenantId: params.tenantId,
+      tripId: params.tripId,
+      driverId: this.requireDriverId(params.driverId),
+      source: TripCompletionSource.DRIVER,
+    });
+  }
+
+  private requireDriverId(driverId?: string | null): string {
+    if (!driverId) {
+      throw new ForbiddenException('Driver user is not linked to a driver');
+    }
+    return driverId;
+  }
 
   async listMyAvailability(params: { userId: string; tenantId: string; driverId?: string | null; from?: string; to?: string }) {
     if (!params.driverId) {

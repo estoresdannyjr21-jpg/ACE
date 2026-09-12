@@ -625,7 +625,15 @@ export type RatesLookups = {
     id: string;
     name: string;
     code: string;
-    serviceCategories: Array<{ id: string; name: string; code: string }>;
+    serviceSegments: Array<{ id: string; name: string; code: string }>;
+    serviceCategories: Array<{
+      id: string;
+      name: string;
+      code: string;
+      serviceSegmentId: string;
+      firstTripOnlyPayout: boolean;
+      serviceSegment?: { id: string; name: string; code: string };
+    }>;
   }>;
 };
 
@@ -692,6 +700,207 @@ export async function updateWetleaseFirstTripRate(
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await res.text().catch(() => `Update wetlease rate failed: ${res.status}`));
+  return res.json();
+}
+
+// ——— Master data (Client → ServiceSegment → ServiceCategory) ———
+
+/** Nest returns `{ message }` as a string, or an array for validation errors. */
+async function readApiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    const msg = (data as { message?: string | string[] })?.message;
+    if (Array.isArray(msg)) return msg.join('; ');
+    if (typeof msg === 'string' && msg) return msg;
+  } catch {
+    // response had no JSON body
+  }
+  return `${fallback}: ${res.status}`;
+}
+
+/** Prisma Decimal fields arrive as strings over JSON. */
+export type DecimalString = string | number;
+
+export type MasterDataCategory = {
+  id: string;
+  clientAccountId: string;
+  serviceSegmentId: string;
+  name: string;
+  code: string;
+  status: string;
+  payoutTermsBusinessDays: number;
+  docSubmissionDay: string;
+  cycleStartDay: string;
+  excludeWeekends: boolean;
+  subcontractorInvoiceDeadlineDays: number;
+  callTimeGraceMinutes: number;
+  vatRate: DecimalString;
+  adminFeePercent: DecimalString;
+  withholdingPercent: DecimalString;
+  firstTripOnlyPayout: boolean;
+  serviceSegment?: { id: string; name: string; code: string };
+};
+
+export type MasterDataSegment = {
+  id: string;
+  clientAccountId: string;
+  name: string;
+  code: string;
+  sortOrder: number;
+  status: string;
+  serviceCategories?: MasterDataCategory[];
+};
+
+export type MasterDataTripRequirement = {
+  id: string;
+  code: string;
+  label: string;
+  kind: 'DOCUMENT' | 'FIELD';
+  docType: string | null;
+  serviceCategoryId: string | null;
+  required: boolean;
+  sortOrder: number;
+  status: string;
+  helpText: string | null;
+  serviceCategory?: { id: string; name: string; code: string } | null;
+};
+
+export type MasterDataClient = {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+  status: string;
+  createdAt: string;
+  serviceSegments?: MasterDataSegment[];
+  tripRequirements?: MasterDataTripRequirement[];
+  _count?: { tripRequirements: number; trips: number; routeRates: number };
+};
+
+export async function listMasterDataClients(includeInactive = false): Promise<MasterDataClient[]> {
+  const q = includeInactive ? '?includeInactive=true' : '';
+  const res = await fetch(`${API_BASE}/master-data/clients${q}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, 'Failed to load clients'));
+  return res.json();
+}
+
+export async function getMasterDataClient(clientId: string): Promise<MasterDataClient> {
+  const res = await fetch(`${API_BASE}/master-data/clients/${clientId}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, 'Failed to load client'));
+  return res.json();
+}
+
+export async function createMasterDataClient(body: {
+  name: string;
+  code: string;
+  status?: string;
+}): Promise<MasterDataClient> {
+  const res = await fetch(`${API_BASE}/master-data/clients`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Create client failed'));
+  return res.json();
+}
+
+export async function updateMasterDataClient(
+  clientId: string,
+  body: { name?: string; status?: string },
+): Promise<MasterDataClient> {
+  const res = await fetch(`${API_BASE}/master-data/clients/${clientId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Update client failed'));
+  return res.json();
+}
+
+export async function listServiceSegments(clientId: string): Promise<MasterDataSegment[]> {
+  const res = await fetch(`${API_BASE}/master-data/clients/${clientId}/segments`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Failed to load segments'));
+  return res.json();
+}
+
+export async function createServiceSegment(
+  clientId: string,
+  body: { name: string; code: string; sortOrder?: number; status?: string },
+): Promise<MasterDataSegment> {
+  const res = await fetch(`${API_BASE}/master-data/clients/${clientId}/segments`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Create segment failed'));
+  return res.json();
+}
+
+export async function updateServiceSegment(
+  segmentId: string,
+  body: { name?: string; sortOrder?: number; status?: string },
+): Promise<MasterDataSegment> {
+  const res = await fetch(`${API_BASE}/master-data/segments/${segmentId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Update segment failed'));
+  return res.json();
+}
+
+/** Payout terms + financial rules configured per service category. */
+export type ServiceCategoryRules = {
+  payoutTermsBusinessDays?: number;
+  docSubmissionDay?: string;
+  cycleStartDay?: string;
+  excludeWeekends?: boolean;
+  subcontractorInvoiceDeadlineDays?: number;
+  callTimeGraceMinutes?: number;
+  vatRate?: number;
+  adminFeePercent?: number;
+  withholdingPercent?: number;
+  firstTripOnlyPayout?: boolean;
+};
+
+export async function listServiceCategories(clientId: string): Promise<MasterDataCategory[]> {
+  const res = await fetch(`${API_BASE}/master-data/clients/${clientId}/categories`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Failed to load categories'));
+  return res.json();
+}
+
+export async function createServiceCategory(
+  clientId: string,
+  body: ServiceCategoryRules & {
+    serviceSegmentId: string;
+    name: string;
+    code: string;
+    status?: string;
+  },
+): Promise<MasterDataCategory> {
+  const res = await fetch(`${API_BASE}/master-data/clients/${clientId}/categories`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Create category failed'));
+  return res.json();
+}
+
+export async function updateServiceCategory(
+  categoryId: string,
+  body: ServiceCategoryRules & { serviceSegmentId?: string; name?: string; status?: string },
+): Promise<MasterDataCategory> {
+  const res = await fetch(`${API_BASE}/master-data/categories/${categoryId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, 'Update category failed'));
   return res.json();
 }
 

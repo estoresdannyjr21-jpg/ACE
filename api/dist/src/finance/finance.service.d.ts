@@ -15,10 +15,17 @@ export declare class FinanceService {
             id: string;
             name: string;
             code: string;
+            serviceSegments: {
+                id: string;
+                name: string;
+                code: string;
+            }[];
             serviceCategories: {
                 id: string;
                 name: string;
                 code: string;
+                serviceSegmentId: string;
+                firstTripOnlyPayout: boolean;
             }[];
         }[];
         operators: {
@@ -44,14 +51,24 @@ export declare class FinanceService {
             status: string;
             code: string;
             clientAccountId: string;
-            segmentType: string;
+            serviceSegmentId: string;
+            payoutTermsBusinessDays: number;
+            docSubmissionDay: string;
+            cycleStartDay: string;
+            excludeWeekends: boolean;
+            subcontractorInvoiceDeadlineDays: number;
+            callTimeGraceMinutes: number;
+            vatRate: Prisma.Decimal;
+            adminFeePercent: Prisma.Decimal;
+            withholdingPercent: Prisma.Decimal;
+            firstTripOnlyPayout: boolean;
         };
         documents: {
             id: string;
+            docType: import(".prisma/client").$Enums.DocumentType;
             fileKey: string;
             tripId: string;
             uploadedAt: Date;
-            docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
         }[];
         assignedDriver: {
@@ -110,9 +127,9 @@ export declare class FinanceService {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -137,6 +154,10 @@ export declare class FinanceService {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     }>;
@@ -241,9 +262,9 @@ export declare class FinanceService {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -268,6 +289,10 @@ export declare class FinanceService {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     })[]>;
@@ -915,8 +940,8 @@ export declare class FinanceService {
             id: string;
             runsheetDate: Date | null;
             uploadedAt: Date;
-            notes: string | null;
             uploadedByUserId: string | null;
+            notes: string | null;
             arBatchId: string;
             clientProvidedRef: string;
             ourInternalRef: string | null;
@@ -1000,8 +1025,8 @@ export declare class FinanceService {
             id: string;
             runsheetDate: Date | null;
             uploadedAt: Date;
-            notes: string | null;
             uploadedByUserId: string | null;
+            notes: string | null;
             arBatchId: string;
             clientProvidedRef: string;
             ourInternalRef: string | null;
@@ -1082,8 +1107,8 @@ export declare class FinanceService {
             id: string;
             runsheetDate: Date | null;
             uploadedAt: Date;
-            notes: string | null;
             uploadedByUserId: string | null;
+            notes: string | null;
             arBatchId: string;
             clientProvidedRef: string;
             ourInternalRef: string | null;
@@ -1108,14 +1133,13 @@ export declare class FinanceService {
         checkPickupDate: Date | null;
         depositedAt: Date | null;
     }>;
-    private readonly SEGMENT_TO_CATEGORY_CODES;
     importReverseBillingCsv(params: {
         userId: string;
         tenantId: string;
         csvBuffer: Buffer;
         commit: boolean;
         clientCode: string;
-        serviceSegment: 'FM_ONCALL' | 'FM_WETLEASE' | 'MFM_ONCALL';
+        serviceSegment: string;
         cutoffStartDate: string;
         cutoffEndDate: string;
     }): Promise<{

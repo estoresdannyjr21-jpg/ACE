@@ -24,6 +24,7 @@ const trips_dto_1 = require("./dto/trips.dto");
 const events_dto_1 = require("./dto/events.dto");
 const pod_dto_1 = require("./dto/pod.dto");
 const reimbursable_doc_dto_1 = require("./dto/reimbursable-doc.dto");
+const dto_1 = require("../trip-requirements/dto");
 let DriverController = class DriverController {
     constructor(service) {
         this.service = service;
@@ -83,6 +84,30 @@ let DriverController = class DriverController {
             driverId: req.user.driverId,
             tripId: id,
             fileKey: dto.fileKey,
+        });
+    }
+    async getMyTripRequirements(req, id) {
+        return this.service.getMyTripRequirements({
+            tenantId: req.user.tenantId,
+            driverId: req.user.driverId,
+            tripId: id,
+        });
+    }
+    async submitMyTripRequirements(req, id, dto) {
+        return this.service.submitMyTripRequirements({
+            userId: req.user.id,
+            tenantId: req.user.tenantId,
+            driverId: req.user.driverId,
+            tripId: id,
+            items: dto.items,
+        });
+    }
+    async completeMyTrip(req, id) {
+        return this.service.completeMyTrip({
+            userId: req.user.id,
+            tenantId: req.user.tenantId,
+            driverId: req.user.driverId,
+            tripId: id,
         });
     }
     async uploadReimbursableDoc(req, id, dto) {
@@ -185,6 +210,41 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, pod_dto_1.UploadPodDto]),
     __metadata("design:returntype", Promise)
 ], DriverController.prototype, "uploadPod", null);
+__decorate([
+    (0, common_1.Get)('trips/:id/requirements'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.DRIVER),
+    (0, swagger_1.ApiOperation)({ summary: 'What this client requires before I can complete the trip' }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], DriverController.prototype, "getMyTripRequirements", null);
+__decorate([
+    (0, common_1.Post)('trips/:id/requirements'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.DRIVER),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Submit required trip data / documents (POD image, seal number, ...)' }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, dto_1.FulfillTripRequirementsDto]),
+    __metadata("design:returntype", Promise)
+], DriverController.prototype, "submitMyTripRequirements", null);
+__decorate([
+    (0, common_1.Post)('trips/:id/complete'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.DRIVER),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Complete my trip. Rejected with the missing list until every client requirement is satisfied (no bypass).',
+    }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], DriverController.prototype, "completeMyTrip", null);
 __decorate([
     (0, common_1.Post)('trips/:id/reimbursable-doc'),
     (0, rbac_guard_1.Roles)(client_1.UserRole.DRIVER),

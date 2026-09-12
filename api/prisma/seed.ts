@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { DocumentType, PrismaClient, TripRequirementKind } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -38,74 +38,136 @@ async function main() {
 
   console.log('✅ Created Super Admin:', superAdmin.email);
 
-  // Create Shopee Express (SPX) client account
-  let spxAccount = await prisma.clientAccount.findFirst({
-    where: { code: 'SPX', tenantId: tenant.id },
+  // Master data: client -> service segments -> service categories (rules live on the category)
+  const spxAccount = await prisma.client.upsert({
+    where: { tenantId_code: { tenantId: tenant.id, code: 'SPX' } },
+    update: { name: 'Shopee Express' },
+    create: {
+      tenantId: tenant.id,
+      name: 'Shopee Express',
+      code: 'SPX',
+      status: 'ACTIVE',
+    },
   });
 
-  if (!spxAccount) {
-    spxAccount = await prisma.clientAccount.create({
-      data: {
-        tenantId: tenant.id,
-        name: 'Shopee Express',
-        code: 'SPX',
+  console.log('✅ Created client:', spxAccount.name);
+
+  const segments = [
+    { name: 'FM Oncall', code: 'FM_ONCALL', sortOrder: 1 },
+    { name: 'FM Wetlease', code: 'FM_WETLEASE', sortOrder: 2 },
+    { name: 'MFM Oncall', code: 'MFM_ONCALL', sortOrder: 3 },
+  ];
+  const segmentIdByCode = new Map<string, string>();
+  for (const seg of segments) {
+    const segment = await prisma.serviceSegment.upsert({
+      where: { clientAccountId_code: { clientAccountId: spxAccount.id, code: seg.code } },
+      update: { name: seg.name, sortOrder: seg.sortOrder, status: 'ACTIVE' },
+      create: {
+        clientAccountId: spxAccount.id,
+        name: seg.name,
+        code: seg.code,
+        sortOrder: seg.sortOrder,
         status: 'ACTIVE',
       },
     });
+    segmentIdByCode.set(seg.code, segment.id);
+    console.log(`✅ Service segment: ${segment.code}`);
   }
 
-  console.log('✅ Created client account:', spxAccount.name);
-
-  // Create 8 SPX Service Categories with payout terms (3, 8, or 13 business days)
+  // Payout terms (3, 8 or 13 business days) and first-trip-only payout are per category
   const categories = [
-    { name: 'SPX FM 4W Oncall', code: 'SPX_FM_4W_ONCALL', segmentType: 'FM', payoutTermsBusinessDays: 13 },
-    { name: 'SPX FM 6WCV Oncall', code: 'SPX_FM_6WCV_ONCALL', segmentType: 'FM', payoutTermsBusinessDays: 8 },
-    { name: 'SPX FM 10W Oncall', code: 'SPX_FM_10W_ONCALL', segmentType: 'FM', payoutTermsBusinessDays: 8 },
-    { name: 'SPX FM 4WCV Wetlease', code: 'SPX_FM_4WCV_WETLEASE', segmentType: 'FM', payoutTermsBusinessDays: 13 },
-    { name: 'SPX FM 6WCV Wetlease', code: 'SPX_FM_6WCV_WETLEASE', segmentType: 'FM', payoutTermsBusinessDays: 8 },
-    { name: 'SPX MEGA FM 6W', code: 'SPX_MEGA_FM_6W', segmentType: 'MEGA_FM', payoutTermsBusinessDays: 3 },
-    { name: 'SPX MEGA FM 10W', code: 'SPX_MEGA_FM_10W', segmentType: 'MEGA_FM', payoutTermsBusinessDays: 3 },
-    { name: 'SPX MFM Shunting 6W', code: 'SPX_MFM_SHUNTING_6W', segmentType: 'MFM_SHUNTING', payoutTermsBusinessDays: 3 },
+    { name: 'SPX FM 4W Oncall', code: 'SPX_FM_4W_ONCALL', segment: 'FM_ONCALL', payoutTermsBusinessDays: 13, firstTripOnlyPayout: false },
+    { name: 'SPX FM 6WCV Oncall', code: 'SPX_FM_6WCV_ONCALL', segment: 'FM_ONCALL', payoutTermsBusinessDays: 8, firstTripOnlyPayout: false },
+    { name: 'SPX FM 10W Oncall', code: 'SPX_FM_10W_ONCALL', segment: 'FM_ONCALL', payoutTermsBusinessDays: 8, firstTripOnlyPayout: false },
+    { name: 'SPX FM 4WCV Wetlease', code: 'SPX_FM_4WCV_WETLEASE', segment: 'FM_WETLEASE', payoutTermsBusinessDays: 13, firstTripOnlyPayout: true },
+    { name: 'SPX FM 6WCV Wetlease', code: 'SPX_FM_6WCV_WETLEASE', segment: 'FM_WETLEASE', payoutTermsBusinessDays: 8, firstTripOnlyPayout: true },
+    { name: 'SPX MEGA FM 6W', code: 'SPX_MEGA_FM_6W', segment: 'MFM_ONCALL', payoutTermsBusinessDays: 3, firstTripOnlyPayout: false },
+    { name: 'SPX MEGA FM 10W', code: 'SPX_MEGA_FM_10W', segment: 'MFM_ONCALL', payoutTermsBusinessDays: 3, firstTripOnlyPayout: false },
+    { name: 'SPX MFM Shunting 6W', code: 'SPX_MFM_SHUNTING_6W', segment: 'MFM_ONCALL', payoutTermsBusinessDays: 3, firstTripOnlyPayout: false },
   ];
 
   for (const cat of categories) {
-    let category = await prisma.serviceCategory.findFirst({
-      where: { code: cat.code, clientAccountId: spxAccount.id },
-    });
-
-    if (!category) {
-      category = await prisma.serviceCategory.create({
-        data: {
-          clientAccountId: spxAccount.id,
-          name: cat.name,
-          code: cat.code,
-          segmentType: cat.segmentType,
-          status: 'ACTIVE',
-        },
-      });
-    }
-
-    // Create or update service config: doc submission Mon/Tue, cycle start Wednesday, payout terms per category
-    await prisma.clientServiceConfig.upsert({
-      where: { serviceCategoryId: category.id },
+    const serviceSegmentId = segmentIdByCode.get(cat.segment)!;
+    const category = await prisma.serviceCategory.upsert({
+      where: { clientAccountId_code: { clientAccountId: spxAccount.id, code: cat.code } },
+      update: {
+        name: cat.name,
+        serviceSegmentId,
+        payoutTermsBusinessDays: cat.payoutTermsBusinessDays,
+        docSubmissionDay: 'Tuesday',
+        cycleStartDay: 'Wednesday',
+        firstTripOnlyPayout: cat.firstTripOnlyPayout,
+      },
       create: {
         clientAccountId: spxAccount.id,
-        serviceCategoryId: category.id,
+        serviceSegmentId,
+        name: cat.name,
+        code: cat.code,
+        status: 'ACTIVE',
         payoutTermsBusinessDays: cat.payoutTermsBusinessDays,
         docSubmissionDay: 'Tuesday', // submission window: Monday or Tuesday for the week
         cycleStartDay: 'Wednesday',
         excludeWeekends: true,
         subcontractorInvoiceDeadlineDays: 30,
         callTimeGraceMinutes: 15,
-      },
-      update: {
-        payoutTermsBusinessDays: cat.payoutTermsBusinessDays,
-        docSubmissionDay: 'Tuesday',
-        cycleStartDay: 'Wednesday',
+        firstTripOnlyPayout: cat.firstTripOnlyPayout,
       },
     });
 
     console.log(`✅ Created/updated service category: ${category.name} (${cat.payoutTermsBusinessDays} days payout terms)`);
+  }
+
+  // Trip requirements: what SPX needs before a trip can be completed
+  const tripRequirements = [
+    {
+      code: 'POD_IMAGE',
+      label: 'POD / Runsheet photo',
+      kind: TripRequirementKind.DOCUMENT,
+      docType: DocumentType.POD_RUNSHEET,
+      sortOrder: 1,
+      helpText: 'Photo of the signed runsheet / proof of delivery',
+    },
+    {
+      code: 'WAYBILL_NUMBER',
+      label: 'Waybill number',
+      kind: TripRequirementKind.FIELD,
+      docType: null,
+      sortOrder: 2,
+      helpText: 'Waybill number printed on the runsheet',
+    },
+    {
+      code: 'SEAL_NUMBER',
+      label: 'Seal number',
+      kind: TripRequirementKind.FIELD,
+      docType: null,
+      sortOrder: 3,
+      helpText: 'Seal number on the container door',
+    },
+  ];
+  for (const req of tripRequirements) {
+    await prisma.clientTripRequirement.upsert({
+      where: { clientAccountId_code: { clientAccountId: spxAccount.id, code: req.code } },
+      update: {
+        label: req.label,
+        kind: req.kind,
+        docType: req.docType,
+        sortOrder: req.sortOrder,
+        helpText: req.helpText,
+      },
+      create: {
+        tenantId: tenant.id,
+        clientAccountId: spxAccount.id,
+        code: req.code,
+        label: req.label,
+        kind: req.kind,
+        docType: req.docType,
+        required: true,
+        sortOrder: req.sortOrder,
+        status: 'ACTIVE',
+        helpText: req.helpText,
+      },
+    });
+    console.log(`✅ Trip requirement: ${req.code}`);
   }
 
   const wetleaseSeed: Array<{ code: string; client: number; subcontractor: number }> = [

@@ -12,8 +12,8 @@ This document lists the **client account**, **service categories**, and **billin
 
 | Concept | Where it lives | How it’s used |
 |--------|----------------|----------------|
-| **Doc submission day** | `ClientServiceConfig.docSubmissionDay` (e.g. `"Tuesday"`) | Stored only; **not** used to compute payout date. |
-| **Cycle start day** | `ClientServiceConfig.cycleStartDay` (e.g. `"Wednesday"`) | Stored only; **not** used to compute payout date. |
+| **Doc submission day** | `ServiceCategory.docSubmissionDay` (e.g. `"Tuesday"`) | Stored only; **not** used to compute payout date. |
+| **Cycle start day** | `ServiceCategory.cycleStartDay` (e.g. `"Wednesday"`) | Stored only; **not** used to compute payout date. |
 | **Payout due date** | `TripFinance.payoutDueDate` | **Computed when Finance marks “doc received”:**  
   `payoutDueDate = doc received date + payoutTermsBusinessDays` (business days, optionally excluding weekends). |
 
@@ -28,28 +28,28 @@ If you want a **fixed schedule** (e.g. “submission Tuesday → payout release 
 
 ## 2. List of client account, service categories, and billing cycle config
 
-Below is the list as defined in the **seed** (and schema). Each **service category** has one **ClientServiceConfig** (per client + category). Use this to review and verify.
+Below is the list as defined in the **seed** (and schema). The billing cycle rules are fields **on the service category itself** (the old `ClientServiceConfig` table was merged into `ServiceCategory`), and can be edited per category via `PATCH /master-data/categories/:categoryId`.
 
-### Client account
+### Client
 
 | Client code | Client name   | Notes        |
 |-------------|---------------|--------------|
-| **SPX**     | Shopee Express | Single client in seed |
+| **SPX**     | Shopee Express | Seeded client; add more via `POST /master-data/clients` |
 
 ---
 
 ### Service categories and billing cycle (seed values)
 
-| # | Service category name      | Category code             | Segment type  | Doc submission day | Cycle start day | Payout terms (business days) | Exclude weekends | Subcon invoice deadline (days) | Call time grace (min) |
-|---|----------------------------|----------------------------|--------------|--------------------|-----------------|------------------------------|-------------------|---------------------------------|------------------------|
-| 1 | SPX FM 4W Oncall           | SPX_FM_4W_ONCALL           | FM           | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
-| 2 | SPX FM 6WCV Oncall         | SPX_FM_6WCV_ONCALL         | FM           | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
-| 3 | SPX FM 10W Oncall         | SPX_FM_10W_ONCALL         | FM           | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
-| 4 | SPX FM 4WCV Wetlease      | SPX_FM_4WCV_WETLEASE      | FM           | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
-| 5 | SPX FM 6WCV Wetlease      | SPX_FM_6WCV_WETLEASE      | FM           | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
-| 6 | SPX MEGA FM 6W            | SPX_MEGA_FM_6W            | MEGA_FM      | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
-| 7 | SPX MEGA FM 10W           | SPX_MEGA_FM_10W           | MEGA_FM      | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
-| 8 | SPX MFM Shunting 6W       | SPX_MFM_SHUNTING_6W       | MFM_SHUNTING | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     |
+| # | Service category name      | Category code             | Segment      | Doc submission day | Cycle start day | Payout terms (business days) | Exclude weekends | Subcon invoice deadline (days) | Call time grace (min) | First trip only payout |
+|---|----------------------------|----------------------------|--------------|--------------------|-----------------|------------------------------|-------------------|---------------------------------|------------------------|------------------------|
+| 1 | SPX FM 4W Oncall           | SPX_FM_4W_ONCALL           | FM_ONCALL    | Tuesday            | Wednesday       | 13                           | Yes               | 30                              | 15                     | No                     |
+| 2 | SPX FM 6WCV Oncall         | SPX_FM_6WCV_ONCALL         | FM_ONCALL    | Tuesday            | Wednesday       | 8                            | Yes               | 30                              | 15                     | No                     |
+| 3 | SPX FM 10W Oncall          | SPX_FM_10W_ONCALL          | FM_ONCALL    | Tuesday            | Wednesday       | 8                            | Yes               | 30                              | 15                     | No                     |
+| 4 | SPX FM 4WCV Wetlease       | SPX_FM_4WCV_WETLEASE       | FM_WETLEASE  | Tuesday            | Wednesday       | 13                           | Yes               | 30                              | 15                     | Yes                    |
+| 5 | SPX FM 6WCV Wetlease       | SPX_FM_6WCV_WETLEASE       | FM_WETLEASE  | Tuesday            | Wednesday       | 8                            | Yes               | 30                              | 15                     | Yes                    |
+| 6 | SPX MEGA FM 6W             | SPX_MEGA_FM_6W             | MFM_ONCALL   | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     | No                     |
+| 7 | SPX MEGA FM 10W            | SPX_MEGA_FM_10W            | MFM_ONCALL   | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     | No                     |
+| 8 | SPX MFM Shunting 6W        | SPX_MFM_SHUNTING_6W        | MFM_ONCALL   | Tuesday            | Wednesday       | 3                            | Yes               | 30                              | 15                     | No                     |
 
 **Notes on columns:**
 
@@ -64,15 +64,17 @@ Below is the list as defined in the **seed** (and schema). Each **service catego
 
 ## 3. Schema reference (where these live)
 
-- **ClientAccount** – `code`, `name` (e.g. SPX, Shopee Express).
-- **ServiceCategory** – `name`, `code`, `segmentType` (FM, MEGA_FM, MFM_SHUNTING); belongs to one client.
-- **ClientServiceConfig** – one per (client, service category):
+- **Client** – `code`, `name` (e.g. SPX, Shopee Express); `code` is unique per tenant and is what rate / AR uploads reference.
+- **ServiceSegment** – `name`, `code` (e.g. `FM_ONCALL`, `FM_WETLEASE`, `MFM_ONCALL`); belongs to one client.
+- **ServiceCategory** – `name`, `code`; belongs to one client and one segment, and carries the rules:
   - `docSubmissionDay` (e.g. `"Tuesday"`)
   - `cycleStartDay` (e.g. `"Wednesday"`)
   - `payoutTermsBusinessDays` (e.g. `3`)
   - `excludeWeekends` (e.g. `true`)
   - `subcontractorInvoiceDeadlineDays` (e.g. `30`)
   - `callTimeGraceMinutes` (e.g. `15`)
+  - `vatRate`, `adminFeePercent`, `withholdingPercent` (used by trip finance computation)
+  - `firstTripOnlyPayout` (wetlease-style: only the first trip of the day per driver is paid)
 
 ---
 

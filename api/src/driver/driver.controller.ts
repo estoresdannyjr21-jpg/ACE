@@ -9,6 +9,7 @@ import { DeclineTripDto, GetMyTripsQueryDto } from './dto/trips.dto';
 import { CreateTripEventDto } from './dto/events.dto';
 import { UploadPodDto } from './dto/pod.dto';
 import { UploadReimbursableDocDto } from './dto/reimbursable-doc.dto';
+import { FulfillTripRequirementsDto } from '../trip-requirements/dto';
 
 @ApiTags('Driver App')
 @ApiBearerAuth()
@@ -108,6 +109,51 @@ export class DriverController {
       driverId: req.user.driverId,
       tripId: id,
       fileKey: dto.fileKey,
+    });
+  }
+
+  @Get('trips/:id/requirements')
+  @Roles(UserRole.DRIVER)
+  @ApiOperation({ summary: 'What this client requires before I can complete the trip' })
+  async getMyTripRequirements(@Request() req, @Param('id') id: string) {
+    return this.service.getMyTripRequirements({
+      tenantId: req.user.tenantId,
+      driverId: req.user.driverId,
+      tripId: id,
+    });
+  }
+
+  @Post('trips/:id/requirements')
+  @Roles(UserRole.DRIVER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Submit required trip data / documents (POD image, seal number, ...)' })
+  async submitMyTripRequirements(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: FulfillTripRequirementsDto,
+  ) {
+    return this.service.submitMyTripRequirements({
+      userId: req.user.id,
+      tenantId: req.user.tenantId,
+      driverId: req.user.driverId,
+      tripId: id,
+      items: dto.items,
+    });
+  }
+
+  @Post('trips/:id/complete')
+  @Roles(UserRole.DRIVER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Complete my trip. Rejected with the missing list until every client requirement is satisfied (no bypass).',
+  })
+  async completeMyTrip(@Request() req, @Param('id') id: string) {
+    return this.service.completeMyTrip({
+      userId: req.user.id,
+      tenantId: req.user.tenantId,
+      driverId: req.user.driverId,
+      tripId: id,
     });
   }
 

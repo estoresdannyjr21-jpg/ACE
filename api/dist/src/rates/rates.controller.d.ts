@@ -58,10 +58,22 @@ export declare class RatesController {
             id: string;
             name: string;
             code: string;
+            serviceSegments: {
+                id: string;
+                name: string;
+                code: string;
+            }[];
             serviceCategories: {
                 id: string;
                 name: string;
                 code: string;
+                serviceSegment: {
+                    id: string;
+                    name: string;
+                    code: string;
+                };
+                serviceSegmentId: string;
+                firstTripOnlyPayout: boolean;
             }[];
         }[];
     }>;

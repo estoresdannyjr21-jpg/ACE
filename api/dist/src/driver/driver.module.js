@@ -11,12 +11,13 @@ const common_1 = require("@nestjs/common");
 const driver_controller_1 = require("./driver.controller");
 const driver_service_1 = require("./driver.service");
 const notifications_module_1 = require("../notifications/notifications.module");
+const trip_requirements_module_1 = require("../trip-requirements/trip-requirements.module");
 let DriverModule = class DriverModule {
 };
 exports.DriverModule = DriverModule;
 exports.DriverModule = DriverModule = __decorate([
     (0, common_1.Module)({
-        imports: [notifications_module_1.NotificationsModule],
+        imports: [notifications_module_1.NotificationsModule, trip_requirements_module_1.TripRequirementsModule],
         controllers: [driver_controller_1.DriverController],
         providers: [driver_service_1.DriverService],
     })

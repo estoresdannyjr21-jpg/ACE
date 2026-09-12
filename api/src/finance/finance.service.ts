@@ -20,12 +20,8 @@ import {
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
-const VAT_RATE = 1.12;
-const ADMIN_FEE_PCT = 0.02;
-const WITHHOLDING_PCT = 0.02;
 const CASHBOND_DEDUCTION = 500;
 const CASHBOND_CAP = 50000;
-const SUBCONTRACTOR_INVOICE_DEADLINE_DAYS = 30;
 
 /** Blueprint §12: Add N business days to a date; when excludeWeekends is true, skip Sat/Sun. */
 function addBusinessDays(baseDate: Date, n: number, excludeWeekends: boolean): Date {
@@ -86,15 +82,26 @@ export class FinanceService {
 
   async getFinanceLookups(tenantId: string) {
     const [clients, operators] = await Promise.all([
-      this.prisma.clientAccount.findMany({
+      this.prisma.client.findMany({
         where: { tenantId, status: 'ACTIVE' },
         select: {
           id: true,
           name: true,
           code: true,
-          serviceCategories: {
+          serviceSegments: {
             where: { status: 'ACTIVE' },
             select: { id: true, name: true, code: true },
+            orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+          },
+          serviceCategories: {
+            where: { status: 'ACTIVE' },
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              serviceSegmentId: true,
+              firstTripOnlyPayout: true,
+            },
             orderBy: { name: 'asc' },
           },
         },
@@ -159,18 +166,17 @@ export class FinanceService {
     const docReceivedAt = new Date();
     let payoutDueDate: Date | undefined;
 
-    const config = await this.prisma.clientServiceConfig.findFirst({
-      where: {
-        clientAccountId: trip.clientAccountId,
-        serviceCategoryId: trip.serviceCategoryId,
-      },
+    // Payout terms are per service category (master data), so each client/segment can differ.
+    const category = await this.prisma.serviceCategory.findFirst({
+      where: { id: trip.serviceCategoryId, clientAccountId: trip.clientAccountId },
+      select: { payoutTermsBusinessDays: true, excludeWeekends: true },
     });
-    if (config) {
+    if (category) {
       const cycleStartWed = getCycleStartWednesday(docReceivedAt);
       payoutDueDate = addBusinessDays(
         cycleStartWed,
-        config.payoutTermsBusinessDays,
-        config.excludeWeekends,
+        category.payoutTermsBusinessDays,
+        category.excludeWeekends,
       );
     }
 
@@ -200,11 +206,12 @@ export class FinanceService {
   }
 
   /**
-   * Compute trip finance per blueprint §11.3:
-   * Vatable Base = route rate, or wetlease: first trip of day (per driver) from WetleaseFirstTripRate;
-   *   same-day additional wetlease trips = 0 trip payout (reimbursables unchanged).
-   * Non-Vat = Vatable/1.12; Admin Fee = 2% of Vatable Base; payout_base by operator invoice type;
-   * net_trip_payout_before_reimb = payout_base − admin_fee.
+   * Compute trip finance per blueprint §11.3, using the service category's configured rules
+   * (vatRate, adminFeePercent, withholdingPercent, firstTripOnlyPayout):
+   * Vatable Base = route rate, or for first-trip-only categories: first trip of day (per driver)
+   *   from WetleaseFirstTripRate; same-day additional trips = 0 trip payout (reimbursables unchanged).
+   * Non-Vat = Vatable/vatRate; Admin Fee = adminFeePercent × Vatable Base;
+   * payout_base by operator invoice type; net_trip_payout_before_reimb = payout_base − admin_fee.
    */
   async computeTripFinance(tenantId: string, tripId: string, userId?: string) {
     const trip = await this.prisma.trip.findFirst({
@@ -238,11 +245,10 @@ export class FinanceService {
     // Subcontractor (AP): tripPayoutRateVatable; Client (AR): billRateAmount — split for margin.
     let subcontractorVatable = Number(rate.tripPayoutRateVatable);
     let clientBill = Number(rate.billRateAmount);
-    const catCode = trip.serviceCategory?.code;
-    if (this.ratesService.isWetleaseCategoryCode(catCode)) {
+    if (trip.serviceCategory.firstTripOnlyPayout) {
       if (!trip.assignedDriverId) {
         throw new BadRequestException(
-          'Wetlease finance requires an assigned driver. Same-day first trip is the earliest call time for that driver and category.',
+          `Category ${trip.serviceCategory.code} pays only the first trip of the day, so an assigned driver is required (first trip = earliest call time for that driver and category).`,
         );
       }
       const { dayStart, dayEnd } = utcCalendarDayBounds(trip.runsheetDate);
@@ -271,17 +277,20 @@ export class FinanceService {
       });
       const idx = sameDayTrips.findIndex((t) => t.id === tripId);
       if (idx < 0) {
-        throw new BadRequestException('Trip not found in same-day wetlease sequence (data inconsistency).');
+        throw new BadRequestException('Trip not found in same-day sequence (data inconsistency).');
       }
       const isFirst = idx === 0;
       subcontractorVatable = isFirst ? firstSub : 0;
       clientBill = isFirst ? firstClient : 0;
     }
 
+    const vatRate = toNum(trip.serviceCategory.vatRate);
+    const adminFeePct = toNum(trip.serviceCategory.adminFeePercent);
+    const withholdingPct = toNum(trip.serviceCategory.withholdingPercent);
     const vatableBase = subcontractorVatable;
 
-    const nonVatBase = vatableBase / VAT_RATE;
-    const adminFeeAmount = vatableBase * ADMIN_FEE_PCT;
+    const nonVatBase = vatRate > 0 ? vatableBase / vatRate : vatableBase;
+    const adminFeeAmount = vatableBase * adminFeePct;
 
     const invoiceType: InvoiceType =
       trip.operatorAtAssignment?.invoiceType ?? InvoiceType.VATABLE;
@@ -296,8 +305,8 @@ export class FinanceService {
       case InvoiceType.NO_OR:
         payoutBase =
           vatableBase -
-          nonVatBase * 0.12 -
-          nonVatBase * WITHHOLDING_PCT;
+          nonVatBase * (vatRate - 1) -
+          nonVatBase * withholdingPct;
         break;
       default:
         payoutBase = vatableBase;
@@ -374,7 +383,9 @@ export class FinanceService {
       include: {
         finance: true,
         overrideRequest: true,
-        serviceCategory: { select: { code: true, name: true } },
+        serviceCategory: {
+          select: { code: true, name: true, subcontractorInvoiceDeadlineDays: true },
+        },
       },
     });
 
@@ -382,7 +393,8 @@ export class FinanceService {
     const eligible = candidates.filter((trip) => {
       const baseDate = trip.requestDeliveryDate ?? trip.runsheetDate;
       const deadline = new Date(baseDate);
-      deadline.setDate(deadline.getDate() + SUBCONTRACTOR_INVOICE_DEADLINE_DAYS);
+      // Invoice deadline is configured per service category (master data).
+      deadline.setDate(deadline.getDate() + trip.serviceCategory.subcontractorInvoiceDeadlineDays);
       if (now <= deadline) return true;
       return (
         trip.finance?.overrideExpiredDeadline === true &&
@@ -429,11 +441,11 @@ export class FinanceService {
       throw new NotFoundException('Operator not found');
     }
 
-    const client = await this.prisma.clientAccount.findFirst({
+    const client = await this.prisma.client.findFirst({
       where: { id: dto.clientAccountId, tenantId },
     });
     if (!client) {
-      throw new NotFoundException('Client account not found');
+      throw new NotFoundException('Client not found');
     }
 
     const eligible = await this.getEligibleTripsForRelease(tenantId, {
@@ -1119,6 +1131,7 @@ export class FinanceService {
         requestDeliveryDate: true,
         runsheetDate: true,
         overrideRequest: { select: { status: true } },
+        serviceCategory: { select: { subcontractorInvoiceDeadlineDays: true } },
       },
       take: 500,
     });
@@ -1127,7 +1140,7 @@ export class FinanceService {
     for (const t of tripsForDeadline) {
       const base = t.requestDeliveryDate ?? t.runsheetDate;
       const deadline = new Date(base);
-      deadline.setDate(deadline.getDate() + SUBCONTRACTOR_INVOICE_DEADLINE_DAYS);
+      deadline.setDate(deadline.getDate() + t.serviceCategory.subcontractorInvoiceDeadlineDays);
       if (deadline >= now && deadline <= sevenDaysFromNow) expiringSoonCount++;
       if (deadline < now && t.overrideRequest?.status !== 'APPROVED') expiredBlockedCount++;
     }
@@ -1462,13 +1475,6 @@ export class FinanceService {
     return this.getArBatchById(tenantId, batchId);
   }
 
-  /** Segment → service category codes for AR batching (same as rates). */
-  private readonly SEGMENT_TO_CATEGORY_CODES: Record<string, string[]> = {
-    FM_ONCALL: ['SPX_FM_4W_ONCALL', 'SPX_FM_6WCV_ONCALL', 'SPX_FM_10W_ONCALL'],
-    FM_WETLEASE: ['SPX_FM_4WCV_WETLEASE', 'SPX_FM_6WCV_WETLEASE'],
-    MFM_ONCALL: ['SPX_MEGA_FM_6W', 'SPX_MEGA_FM_10W', 'SPX_MFM_SHUNTING_6W'],
-  };
-
   /**
    * Import client reverse billing CSV. Match by client_trip_ref first, then our_internal_ref.
    * Preview: validate and return counts; commit: create/update ArBatch, link trips, mark disputes, record unmatched.
@@ -1479,15 +1485,11 @@ export class FinanceService {
     csvBuffer: Buffer;
     commit: boolean;
     clientCode: string;
-    serviceSegment: 'FM_ONCALL' | 'FM_WETLEASE' | 'MFM_ONCALL';
+    serviceSegment: string;
     cutoffStartDate: string;
     cutoffEndDate: string;
   }) {
     const { userId, tenantId, csvBuffer, commit, clientCode, serviceSegment, cutoffStartDate, cutoffEndDate } = params;
-    const allowedSegments = Object.keys(this.SEGMENT_TO_CATEGORY_CODES);
-    if (!allowedSegments.includes(serviceSegment)) {
-      throw new BadRequestException(`service_segment must be one of: ${allowedSegments.join(', ')}`);
-    }
     const cutoffStart = new Date(cutoffStartDate);
     const cutoffEnd = new Date(cutoffEndDate);
     if (isNaN(cutoffStart.getTime()) || isNaN(cutoffEnd.getTime())) {
@@ -1497,16 +1499,35 @@ export class FinanceService {
       throw new BadRequestException('cutoff_end_date must be on or after cutoff_start_date');
     }
 
-    const client = await this.prisma.clientAccount.findFirst({
+    // Strict master-data FK: the client and segment must be registered before AR upload.
+    const client = await this.prisma.client.findFirst({
       where: { tenantId, code: clientCode, status: 'ACTIVE' },
     });
     if (!client) {
-      throw new BadRequestException(`Client not found for code: ${clientCode}`);
+      throw new BadRequestException(
+        `client_code "${clientCode}" is not a registered active client. Create it in master data (POST /master-data/clients) before uploading AR files.`,
+      );
     }
 
-    const categoryCodes = this.SEGMENT_TO_CATEGORY_CODES[serviceSegment];
+    const segment = await this.prisma.serviceSegment.findFirst({
+      where: { clientAccountId: client.id, code: serviceSegment, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (!segment) {
+      const available = await this.prisma.serviceSegment.findMany({
+        where: { clientAccountId: client.id, status: 'ACTIVE' },
+        select: { code: true },
+        orderBy: { sortOrder: 'asc' },
+      });
+      throw new BadRequestException(
+        `service_segment "${serviceSegment}" is not registered for client "${clientCode}". Registered segments: ${
+          available.map((s) => s.code).join(', ') || 'none'
+        }`,
+      );
+    }
+
     const categories = await this.prisma.serviceCategory.findMany({
-      where: { clientAccountId: client.id, code: { in: categoryCodes }, status: 'ACTIVE' },
+      where: { clientAccountId: client.id, serviceSegmentId: segment.id, status: 'ACTIVE' },
     });
     const categoryIds = categories.map((c) => c.id);
     const codeToId = new Map(categories.map((c) => [c.code, c.id]));
@@ -1696,11 +1717,13 @@ export class FinanceService {
       throw new BadRequestException('payment_list_received_date must be a valid ISO date');
     }
 
-    const client = await this.prisma.clientAccount.findFirst({
+    const client = await this.prisma.client.findFirst({
       where: { tenantId, code: clientCode, status: 'ACTIVE' },
     });
     if (!client) {
-      throw new BadRequestException(`Client not found for code: ${clientCode}`);
+      throw new BadRequestException(
+        `client_code "${clientCode}" is not a registered active client in master data`,
+      );
     }
 
     const lines = parseCsvLines(csvBuffer);

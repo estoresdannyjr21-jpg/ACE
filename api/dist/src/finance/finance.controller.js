@@ -110,7 +110,7 @@ let FinanceController = class FinanceController {
             csvBuffer: file.buffer,
             commit: commit === 'true',
             clientCode,
-            serviceSegment: serviceSegment,
+            serviceSegment,
             cutoffStartDate,
             cutoffEndDate,
         });
@@ -376,8 +376,12 @@ __decorate([
             type: 'object',
             properties: {
                 file: { type: 'string', format: 'binary' },
-                client_code: { type: 'string', example: 'SPX' },
-                service_segment: { type: 'string', enum: ['FM_ONCALL', 'FM_WETLEASE', 'MFM_ONCALL'] },
+                client_code: { type: 'string', example: 'SPX', description: 'Registered client code (master data)' },
+                service_segment: {
+                    type: 'string',
+                    example: 'FM_ONCALL',
+                    description: 'Segment code registered under the client (GET /master-data/clients/:id/segments)',
+                },
                 cutoff_start_date: { type: 'string', example: '2026-02-01' },
                 cutoff_end_date: { type: 'string', example: '2026-02-15' },
             },

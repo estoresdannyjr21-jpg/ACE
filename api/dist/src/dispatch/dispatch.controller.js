@@ -23,6 +23,7 @@ const dto_1 = require("./dto");
 const availability_query_dto_1 = require("./dto/availability-query.dto");
 const operations_dashboard_dto_1 = require("./dto/operations-dashboard.dto");
 const proxy_update_dto_1 = require("./dto/proxy-update.dto");
+const dto_2 = require("../trip-requirements/dto");
 let DispatchController = class DispatchController {
     constructor(service) {
         this.service = service;
@@ -47,6 +48,32 @@ let DispatchController = class DispatchController {
     }
     async getTripById(req, tripId) {
         return this.service.getTripById(req.user.tenantId, tripId);
+    }
+    async getTripRequirements(req, tripId) {
+        return this.service.getTripRequirements(req.user.tenantId, tripId);
+    }
+    async fulfillTripRequirements(req, tripId, dto) {
+        return this.service.fulfillTripRequirementsAsCoordinator({
+            userId: req.user.id,
+            tenantId: req.user.tenantId,
+            tripId,
+            items: dto.items,
+        });
+    }
+    async completeTrip(req, tripId) {
+        return this.service.completeTripAsCoordinator({
+            userId: req.user.id,
+            tenantId: req.user.tenantId,
+            tripId,
+        });
+    }
+    async forceCompleteTrip(req, tripId, dto) {
+        return this.service.forceCompleteTrip({
+            userId: req.user.id,
+            tenantId: req.user.tenantId,
+            tripId,
+            reason: dto.reason,
+        });
     }
     async verifyPOD(req, tripId, dto) {
         return this.service.verifyPOD(req.user.id, req.user.tenantId, tripId, dto);
@@ -174,6 +201,59 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], DispatchController.prototype, "getTripById", null);
+__decorate([
+    (0, common_1.Get)('trips/:id/requirements'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.OPERATIONS_ACCOUNT_COORDINATOR),
+    (0, swagger_1.ApiOperation)({
+        summary: "Client trip requirements checklist for a trip (what's still missing before completion)",
+    }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], DispatchController.prototype, "getTripRequirements", null);
+__decorate([
+    (0, common_1.Post)('trips/:id/requirements'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.OPERATIONS_ACCOUNT_COORDINATOR),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Upload missing documents / details on behalf of the driver to satisfy client trip requirements',
+    }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, dto_2.FulfillTripRequirementsDto]),
+    __metadata("design:returntype", Promise)
+], DispatchController.prototype, "fulfillTripRequirements", null);
+__decorate([
+    (0, common_1.Post)('trips/:id/complete'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.OPERATIONS_ACCOUNT_COORDINATOR),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Complete a trip on behalf of the driver (all client requirements must be satisfied first)',
+    }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], DispatchController.prototype, "completeTrip", null);
+__decorate([
+    (0, common_1.Post)('trips/:id/force-complete'),
+    (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Admin override: force close a trip, bypassing all client trip requirement validation (audited)',
+    }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, dto_2.ForceCompleteTripDto]),
+    __metadata("design:returntype", Promise)
+], DispatchController.prototype, "forceCompleteTrip", null);
 __decorate([
     (0, common_1.Put)('trips/:id/pod/verify'),
     (0, rbac_guard_1.Roles)(client_1.UserRole.SUPER_ADMIN, client_1.UserRole.ADMIN, client_1.UserRole.MANAGER, client_1.UserRole.OPERATIONS_ACCOUNT_COORDINATOR),

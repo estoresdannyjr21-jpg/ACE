@@ -14,6 +14,8 @@ import { OperatorModule } from './operator/operator.module';
 import { DriverModule } from './driver/driver.module';
 import { AuditModule } from './audit/audit.module';
 import { UploadModule } from './upload/upload.module';
+import { MasterDataModule } from './master-data/master-data.module';
+import { TripRequirementsModule } from './trip-requirements/trip-requirements.module';
 
 @Module({
   controllers: [AppController],
@@ -24,6 +26,8 @@ import { UploadModule } from './upload/upload.module';
     ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
+    MasterDataModule,
+    TripRequirementsModule,
     FleetAcquisitionModule,
     DispatchModule,
     FinanceModule,

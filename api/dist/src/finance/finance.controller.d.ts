@@ -11,10 +11,17 @@ export declare class FinanceController {
             id: string;
             name: string;
             code: string;
+            serviceSegments: {
+                id: string;
+                name: string;
+                code: string;
+            }[];
             serviceCategories: {
                 id: string;
                 name: string;
                 code: string;
+                serviceSegmentId: string;
+                firstTripOnlyPayout: boolean;
             }[];
         }[];
         operators: {
@@ -148,14 +155,24 @@ export declare class FinanceController {
             status: string;
             code: string;
             clientAccountId: string;
-            segmentType: string;
+            serviceSegmentId: string;
+            payoutTermsBusinessDays: number;
+            docSubmissionDay: string;
+            cycleStartDay: string;
+            excludeWeekends: boolean;
+            subcontractorInvoiceDeadlineDays: number;
+            callTimeGraceMinutes: number;
+            vatRate: import("@prisma/client/runtime/library").Decimal;
+            adminFeePercent: import("@prisma/client/runtime/library").Decimal;
+            withholdingPercent: import("@prisma/client/runtime/library").Decimal;
+            firstTripOnlyPayout: boolean;
         };
         documents: {
             id: string;
+            docType: import(".prisma/client").$Enums.DocumentType;
             fileKey: string;
             tripId: string;
             uploadedAt: Date;
-            docType: import(".prisma/client").$Enums.DocumentType;
             uploadedByUserId: string | null;
         }[];
         assignedDriver: {
@@ -214,9 +231,9 @@ export declare class FinanceController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -241,6 +258,10 @@ export declare class FinanceController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     }>;
@@ -368,9 +389,9 @@ export declare class FinanceController {
         updatedAt: Date;
         tenantId: string;
         clientAccountId: string;
-        segmentType: string;
         serviceCategoryId: string;
         vehicleType: string;
+        segmentType: string;
         internalRef: string;
         externalRef: string | null;
         requestDeliveryDate: Date | null;
@@ -395,6 +416,10 @@ export declare class FinanceController {
         podLastReviewedByUserId: string | null;
         podLastReviewedAt: Date | null;
         podRejectionComment: string | null;
+        completedAt: Date | null;
+        completedByUserId: string | null;
+        completionSource: import(".prisma/client").$Enums.TripCompletionSource | null;
+        forceCompletedReason: string | null;
         createdByUserId: string;
         clientTripRef: string | null;
     })[]>;
@@ -860,8 +885,8 @@ export declare class FinanceController {
             id: string;
             runsheetDate: Date | null;
             uploadedAt: Date;
-            notes: string | null;
             uploadedByUserId: string | null;
+            notes: string | null;
             arBatchId: string;
             clientProvidedRef: string;
             ourInternalRef: string | null;
@@ -942,8 +967,8 @@ export declare class FinanceController {
             id: string;
             runsheetDate: Date | null;
             uploadedAt: Date;
-            notes: string | null;
             uploadedByUserId: string | null;
+            notes: string | null;
             arBatchId: string;
             clientProvidedRef: string;
             ourInternalRef: string | null;
@@ -1024,8 +1049,8 @@ export declare class FinanceController {
             id: string;
             runsheetDate: Date | null;
             uploadedAt: Date;
-            notes: string | null;
             uploadedByUserId: string | null;
+            notes: string | null;
             arBatchId: string;
             clientProvidedRef: string;
             ourInternalRef: string | null;

@@ -14,10 +14,44 @@ const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../common/prisma/prisma.service");
 const client_1 = require("@prisma/client");
 const notifications_service_1 = require("../notifications/notifications.service");
+const trip_requirements_service_1 = require("../trip-requirements/trip-requirements.service");
 let DriverService = class DriverService {
-    constructor(prisma, notifications) {
+    constructor(prisma, notifications, tripRequirements) {
         this.prisma = prisma;
         this.notifications = notifications;
+        this.tripRequirements = tripRequirements;
+    }
+    async getMyTripRequirements(params) {
+        return this.tripRequirements.getStatus({
+            tenantId: params.tenantId,
+            tripId: params.tripId,
+            driverId: this.requireDriverId(params.driverId),
+        });
+    }
+    async submitMyTripRequirements(params) {
+        return this.tripRequirements.fulfill({
+            userId: params.userId,
+            tenantId: params.tenantId,
+            tripId: params.tripId,
+            driverId: this.requireDriverId(params.driverId),
+            source: client_1.TripCompletionSource.DRIVER,
+            items: params.items,
+        });
+    }
+    async completeMyTrip(params) {
+        return this.tripRequirements.complete({
+            userId: params.userId,
+            tenantId: params.tenantId,
+            tripId: params.tripId,
+            driverId: this.requireDriverId(params.driverId),
+            source: client_1.TripCompletionSource.DRIVER,
+        });
+    }
+    requireDriverId(driverId) {
+        if (!driverId) {
+            throw new common_1.ForbiddenException('Driver user is not linked to a driver');
+        }
+        return driverId;
     }
     async listMyAvailability(params) {
         if (!params.driverId) {
@@ -298,6 +332,7 @@ exports.DriverService = DriverService;
 exports.DriverService = DriverService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        notifications_service_1.NotificationsService])
+        notifications_service_1.NotificationsService,
+        trip_requirements_service_1.TripRequirementsService])
 ], DriverService);
 //# sourceMappingURL=driver.service.js.map
